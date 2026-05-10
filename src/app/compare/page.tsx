@@ -1,0 +1,688 @@
+'use client';
+
+import { useEffect, useState, useCallback, useRef } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import {
+  ShoppingCart, MapPin, Navigation, ChevronDown, ChevronUp,
+  RefreshCw, X, Search,
+} from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { PRODUCTS_INDEX } from '@/lib/typesense';
+import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ListItem = { item_code: string; item_name: string; quantity: number };
+
+type ItemResult = {
+  item_code: string;
+  item_name: string;
+  quantity: number;
+  found: boolean;
+  price: number | null;
+  total: number | null;
+};
+
+type StoreResult = {
+  store_key: string;
+  chain_id: string;
+  chain_name: string;
+  store_id: string;
+  store_name: string;
+  lat: number;
+  lng: number;
+  distance_km: number;
+  products_found: number;
+  products_missing: number;
+  total_price: number;
+  items: ItemResult[];
+};
+
+type IndexProduct = {
+  item_code: string;
+  item_name: string;
+  min_price: number;
+  chain_count: number;
+};
+
+type Location = { lat: number; lng: number; label: string };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function ProductImg({ itemCode, name, size = 40 }: { itemCode: string; name: string; size?: number }) {
+  const [src, setSrc] = useState(getProductImageUrl(itemCode));
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={name}
+      onError={() => { if (src === getProductImageUrl(itemCode)) setSrc(getProductImageFallback(itemCode)); }}
+      style={{ width: size, height: size, objectFit: 'contain', borderRadius: 8, background: 'white', flexShrink: 0 }}
+    />
+  );
+}
+
+async function fetchProductFromIndex(itemCode: string): Promise<IndexProduct | null> {
+  try {
+    const res = await fetch(`/api/search?collection=${PRODUCTS_INDEX}&doc_id=${itemCode}`);
+    if (res.ok) return await res.json();
+  } catch { /* skip */ }
+  return null;
+}
+
+async function checkItemInStore(chainId: string, storeId: string, itemCode: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/search?collection=products_${chainId}&doc_id=${chainId}-${storeId}-${itemCode}`);
+    if (!res.ok) return false;
+    const doc = await res.json();
+    return doc && !doc.error && (doc.item_price ?? 0) > 0;
+  } catch { return false; }
+}
+
+async function fetchCandidates(q: string, excludeCode: string): Promise<IndexProduct[]> {
+  const params = new URLSearchParams({
+    collection: PRODUCTS_INDEX,
+    q,
+    query_by: 'item_name,manufacturer_name',
+    query_by_weights: '3,1',
+    per_page: '50',
+    num_typos: '1',
+    prefix: 'true,false',
+    prioritize_exact_prefix_match: 'true',
+    sort_by: 'chain_count:desc,min_price:asc',
+  });
+  const res = await fetch(`/api/search?${params}`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.hits || [])
+    .map((h: { document: IndexProduct }) => h.document)
+    .filter((p: IndexProduct) => p.item_code !== excludeCode);
+}
+
+async function searchSubstitutes(
+  q: string,
+  excludeCode: string,
+  chainId: string,
+  storeId: string
+): Promise<IndexProduct[]> {
+  try {
+    const words = q.trim().split(/\s+/);
+    const firstWord = words[0];
+    const twoWords = words.slice(0, 2).join(' ');
+
+    // Search with 2 words (primary) and 1 word (secondary) in parallel
+    const [primary, secondary] = await Promise.all([
+      fetchCandidates(twoWords, excludeCode),
+      firstWord !== twoWords ? fetchCandidates(firstWord, excludeCode) : Promise.resolve([]),
+    ]);
+
+    // Merge: primary first, then secondary items not already in primary
+    const primaryCodes = new Set(primary.map(p => p.item_code));
+    const merged = [...primary, ...secondary.filter(p => !primaryCodes.has(p.item_code))];
+
+    // Check each candidate exists in the specific store with a real price
+    const checked = await Promise.all(
+      merged.map(async (p) => {
+        const inStore = await checkItemInStore(chainId, storeId, p.item_code);
+        return inStore ? p : null;
+      })
+    );
+    // Return all found items (no limit) so user can scroll
+    return checked.filter(Boolean) as IndexProduct[];
+  } catch { return []; }
+}
+
+// ─── SubstituteSheet ──────────────────────────────────────────────────────────
+
+function SubstituteSheet({
+  item, chainId, storeId, onClose, onReplace,
+}: {
+  item: ItemResult;
+  chainId: string;
+  storeId: string;
+  onClose: () => void;
+  onReplace: (oldCode: string, newItem: ListItem) => void;
+}) {
+  const [results, setResults] = useState<IndexProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  // Display only first word in the search box, but search with first 2 words initially
+  const firstWord = item.item_name.split(' ')[0];
+  const twoWords = item.item_name.split(' ').slice(0, 2).join(' ');
+  const [query, setQuery] = useState(firstWord);
+
+  const doSearch = useCallback(async (q: string) => {
+    setLoading(true);
+    setResults(await searchSubstitutes(q, item.item_code, chainId, storeId));
+    setLoading(false);
+  }, [item.item_code, chainId, storeId]);
+
+  // Initial search uses 2 words for better results, but box shows only first word
+  useEffect(() => { doSearch(twoWords); }, [twoWords, doSearch]);
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={onClose} />
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl"
+        style={{ background: '#F5EDE4', maxHeight: '75vh', display: 'flex', flexDirection: 'column' }}
+      >
+        <div className="flex justify-center pt-3 pb-1">
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: '#C4B8AC' }} />
+        </div>
+        <div className="flex items-center justify-between px-5 pb-3 pt-1">
+          <h3 className="font-bold text-base" style={{ color: '#4F483F' }}>
+            תחליפים עבור: <span className="font-normal text-sm">{item.item_name}</span>
+          </h3>
+          <button onClick={onClose} style={{ color: '#8a7f75' }}><X size={20} /></button>
+        </div>
+        <div className="px-5 pb-3">
+          <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(182,171,156,0.4)' }}>
+            <Search size={16} style={{ color: '#8a7f75', flexShrink: 0 }} />
+            <input
+              className="flex-1 bg-transparent text-sm outline-none"
+              style={{ color: '#4F483F', direction: 'rtl' }}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && doSearch(query)}
+              placeholder="חפש תחליף..."
+            />
+            <button onClick={() => doSearch(query)} className="text-xs px-2 py-1 rounded-lg font-medium" style={{ background: '#BF2C2C', color: 'white' }}>
+              חפש
+            </button>
+          </div>
+        </div>
+        {/* pb-24 ensures last item is not hidden behind bottom navbar */}
+        <div className="overflow-y-auto px-5 pb-24 flex flex-col gap-2" style={{ overscrollBehavior: 'contain' }}>
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin w-6 h-6 border-2 rounded-full" style={{ borderColor: '#B6AB9C', borderTopColor: 'transparent' }} />
+            </div>
+          ) : results.length === 0 ? (
+            <p className="text-center py-8 text-sm" style={{ color: '#8a7f75' }}>לא נמצאו תחליפים</p>
+          ) : results.map(p => (
+            <div key={p.item_code} className="flex items-center gap-3 p-3 rounded-2xl" style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(182,171,156,0.3)' }}>
+              <ProductImg itemCode={p.item_code} name={p.item_name} size={44} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>{p.item_name}</p>
+                <p className="text-xs mt-0.5" style={{ color: '#8a7f75' }}>₪{p.min_price.toFixed(2)} · {p.chain_count} רשתות</p>
+              </div>
+              <button
+                onClick={() => { onReplace(item.item_code, { item_code: p.item_code, item_name: p.item_name, quantity: item.quantity }); onClose(); }}
+                className="text-xs px-3 py-1.5 rounded-xl font-medium shrink-0"
+                style={{ background: '#2d7a2d', color: 'white' }}
+              >
+                החלף
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── StoreCard ────────────────────────────────────────────────────────────────
+
+function StoreCard({
+  store, rank, totalItems, onReplace,
+}: {
+  store: StoreResult;
+  rank: number;
+  totalItems: number;
+  onReplace: (storeKey: string, oldCode: string, newItem: ListItem) => void;
+}) {
+  const [open, setOpen] = useState(rank === 1);
+  const [substituteFor, setSubstituteFor] = useState<ItemResult | null>(null);
+  const coveragePct = Math.round((store.products_found / totalItems) * 100);
+  const isTop = rank === 1;
+
+  return (
+    <>
+      <div
+        className="rounded-3xl overflow-hidden"
+        style={{
+          background: isTop ? 'rgba(45,122,45,0.08)' : 'rgba(233,216,197,0.85)',
+          border: isTop ? '2px solid rgba(45,122,45,0.35)' : '1.5px solid rgba(182,171,156,0.5)',
+        }}
+      >
+        {/* Header */}
+        <button className="w-full flex items-center gap-3 p-4 text-right" onClick={() => setOpen(o => !o)}>
+          <div
+            className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
+            style={{ background: isTop ? '#2d7a2d' : rank === 2 ? '#5a8a2d' : '#8a7f75', color: 'white' }}
+          >
+            {rank}
+          </div>
+          <div className="flex-1 min-w-0 text-right">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
+              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(182,171,156,0.3)', color: '#8a7f75' }}>
+                {store.chain_name}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+              <span className="text-xs" style={{ color: '#8a7f75' }}>📍 {store.distance_km.toFixed(1)} ק&quot;מ</span>
+              <span className="text-xs font-medium" style={{ color: store.products_missing > 0 ? '#b85c00' : '#2d7a2d' }}>
+                {store.products_found}/{totalItems} מוצרים ({coveragePct}%)
+              </span>
+              {store.products_missing > 0 && (
+                <span className="text-xs" style={{ color: '#BF2C2C' }}>חסרים {store.products_missing}</span>
+              )}
+            </div>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="font-bold text-base" style={{ color: isTop ? '#2d7a2d' : '#4F483F' }}>₪{store.total_price.toFixed(2)}</p>
+            <p className="text-xs" style={{ color: '#8a7f75' }}>לפריטים שנמצאו</p>
+          </div>
+          <div style={{ color: '#8a7f75', flexShrink: 0 }}>
+            {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          </div>
+        </button>
+
+        {/* Coverage bar */}
+        <div className="px-4 pb-1">
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(182,171,156,0.3)' }}>
+            <div
+              className="h-full rounded-full transition-all"
+              style={{ width: `${coveragePct}%`, background: coveragePct === 100 ? '#2d7a2d' : coveragePct >= 70 ? '#5a8a2d' : '#b85c00' }}
+            />
+          </div>
+        </div>
+
+        {/* Product list accordion */}
+        {open && (
+          <div className="px-4 pb-4 pt-2 flex flex-col gap-2">
+            {store.items.map(item => (
+              <div
+                key={item.item_code}
+                className="flex items-center gap-3 p-2.5 rounded-2xl"
+                style={{
+                  background: item.found ? 'rgba(255,255,255,0.6)' : 'rgba(191,44,44,0.06)',
+                  border: item.found ? '1px solid rgba(182,171,156,0.25)' : '1px solid rgba(191,44,44,0.2)',
+                }}
+              >
+                <ProductImg itemCode={item.item_code} name={item.item_name} size={36} />
+                <div className="flex-1 min-w-0">
+                  <p
+                    className="text-sm font-medium leading-tight"
+                    style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}
+                  >
+                    {item.item_name}
+                  </p>
+                  {item.quantity > 1 && <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>}
+                </div>
+                {item.found ? (
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
+                    {item.quantity > 1 && <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setSubstituteFor(item)}
+                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-xl font-medium shrink-0"
+                    style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', border: '1px solid rgba(191,44,44,0.25)' }}
+                  >
+                    <RefreshCw size={12} />
+                    תחליף
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {substituteFor && (
+        <SubstituteSheet
+          item={substituteFor}
+          chainId={store.chain_id}
+          storeId={store.store_id}
+          onClose={() => setSubstituteFor(null)}
+          onReplace={(oldCode, newItem) => { onReplace(store.store_key, oldCode, newItem); setSubstituteFor(null); }}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── LocationStep ─────────────────────────────────────────────────────────────
+
+function LocationStep({ onLocate }: { onLocate: (lat: number, lng: number, label: string) => void }) {
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsError, setGpsError] = useState('');
+  const [cityQuery, setCityQuery] = useState('');
+  const [cityLoading, setCityLoading] = useState(false);
+  const [cityError, setCityError] = useState('');
+
+  const handleGps = () => {
+    if (!navigator.geolocation) { setGpsError('הדפדפן לא תומך ב-GPS'); return; }
+    setGpsLoading(true);
+    setGpsError('');
+    navigator.geolocation.getCurrentPosition(
+      pos => { setGpsLoading(false); onLocate(pos.coords.latitude, pos.coords.longitude, 'מיקום נוכחי'); },
+      () => { setGpsLoading(false); setGpsError('לא ניתן לקבל מיקום. אנא הזן עיר.'); },
+    );
+  };
+
+  const handleCity = async () => {
+    if (!cityQuery.trim()) return;
+    setCityLoading(true);
+    setCityError('');
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cityQuery + ', ישראל')}&format=json&limit=1`,
+        { headers: { 'Accept-Language': 'he' } },
+      );
+      const data = await res.json();
+      if (data?.[0]) {
+        onLocate(parseFloat(data[0].lat), parseFloat(data[0].lon), data[0].display_name.split(',')[0]);
+      } else {
+        setCityError('לא נמצאה עיר. נסה שם אחר.');
+      }
+    } catch {
+      setCityError('שגיאה בחיפוש. נסה שוב.');
+    }
+    setCityLoading(false);
+  };
+
+  return (
+    <div className="rounded-3xl p-6 flex flex-col gap-5" style={{ background: 'rgba(233,216,197,0.9)', border: '1.5px solid rgba(182,171,156,0.5)' }}>
+      <div className="flex items-center gap-3">
+        <MapPin size={28} style={{ color: '#BF2C2C', flexShrink: 0 }} />
+        <div>
+          <p className="font-bold" style={{ color: '#4F483F' }}>בחר מיקום</p>
+          <p className="text-sm" style={{ color: '#8a7f75' }}>כדי למצוא חנויות קרובות אליך</p>
+        </div>
+      </div>
+
+      <button
+        onClick={handleGps}
+        disabled={gpsLoading}
+        className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl font-semibold text-sm"
+        style={{ background: '#BF2C2C', color: 'white', opacity: gpsLoading ? 0.7 : 1 }}
+      >
+        {gpsLoading
+          ? <div className="animate-spin w-4 h-4 border-2 rounded-full" style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: 'white' }} />
+          : <Navigation size={16} />}
+        {gpsLoading ? 'מאתר מיקום...' : 'השתמש במיקום הנוכחי'}
+      </button>
+      {gpsError && <p className="text-xs text-center" style={{ color: '#BF2C2C' }}>{gpsError}</p>}
+
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px" style={{ background: 'rgba(182,171,156,0.4)' }} />
+        <span className="text-xs" style={{ color: '#8a7f75' }}>או</span>
+        <div className="flex-1 h-px" style={{ background: 'rgba(182,171,156,0.4)' }} />
+      </div>
+
+      <div className="flex gap-2">
+        <input
+          className="flex-1 rounded-xl px-3 py-2.5 text-sm outline-none"
+          style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(182,171,156,0.4)', color: '#4F483F', direction: 'rtl' }}
+          placeholder="הזן שם עיר..."
+          value={cityQuery}
+          onChange={e => setCityQuery(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleCity()}
+        />
+        <button
+          onClick={handleCity}
+          disabled={cityLoading}
+          className="px-4 py-2.5 rounded-xl font-semibold text-sm"
+          style={{ background: '#4F483F', color: 'white', opacity: cityLoading ? 0.7 : 1 }}
+        >
+          {cityLoading ? '...' : 'חפש'}
+        </button>
+      </div>
+      {cityError && <p className="text-xs" style={{ color: '#BF2C2C' }}>{cityError}</p>}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function ComparePage() {
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [listItems, setListItems] = useState<ListItem[]>([]);
+  const [location, setLocation] = useState<Location | null>(null);
+  const [radiusKm, setRadiusKm] = useState(10);
+  const [stores, setStores] = useState<StoreResult[]>([]);
+  const [comparing, setComparing] = useState(false);
+  const [compareError, setCompareError] = useState('');
+  const [compared, setCompared] = useState(false);
+  const [currentItems, setCurrentItems] = useState<ListItem[]>([]);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  // Load user + shopping list
+  useEffect(() => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) { setLoadingUser(false); return; }
+      setLoggedIn(true);
+      const { data: items } = await supabase
+        .from('shopping_list_items')
+        .select('item_code, item_name, quantity')
+        .eq('user_id', user.id);
+      if (items?.length) {
+        const enriched = await Promise.all(
+          (items as ListItem[]).map(async item => {
+            const p = await fetchProductFromIndex(item.item_code);
+            return { item_code: item.item_code, item_name: p?.item_name || item.item_name, quantity: item.quantity };
+          }),
+        );
+        setListItems(enriched);
+        setCurrentItems(enriched);
+      }
+      setLoadingUser(false);
+    });
+  }, []);
+
+  const runCompare = useCallback(async (items: ListItem[], loc: Location, radius: number) => {
+    setComparing(true);
+    setCompareError('');
+    setStores([]);
+    try {
+      const res = await fetch('/api/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius_km: radius, items }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'שגיאה');
+      setStores(data.stores || []);
+      setCompared(true);
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    } catch (e) {
+      setCompareError((e as Error).message || 'שגיאה בהשוואה');
+    }
+    setComparing(false);
+  }, []);
+
+  // Auto-compare when location + items ready
+  useEffect(() => {
+    if (location && currentItems.length > 0 && !compared && !comparing) {
+      runCompare(currentItems, location, radiusKm);
+    }
+  }, [location, currentItems, compared, comparing, radiusKm, runCompare]);
+
+  const handleLocate = (lat: number, lng: number, label: string) => {
+    setLocation({ lat, lng, label });
+    setCompared(false);
+    setStores([]);
+  };
+
+  const handleReplace = useCallback((storeKey: string, oldCode: string, newItem: ListItem) => {
+    // Replace only in the specific store's item list, not globally
+    setStores(prev => prev.map(store => {
+      if (store.store_key !== storeKey) return store;
+      const updatedItems = store.items.map(item => {
+        if (item.item_code !== oldCode) return item;
+        // Mark as found with the new item's price from products_index
+        return {
+          item_code: newItem.item_code,
+          item_name: newItem.item_name,
+          quantity: item.quantity,
+          found: false, // will be re-checked on next compare
+          price: null,
+          total: null,
+        };
+      });
+      const found = updatedItems.filter(i => i.found).length;
+      const total = updatedItems.reduce((sum, i) => sum + (i.total || 0), 0);
+      return {
+        ...store,
+        items: updatedItems,
+        products_found: found,
+        products_missing: updatedItems.length - found,
+        total_price: total,
+      };
+    }));
+    // Don't reset compared - keep showing results with the replacement
+  }, []);
+
+  // ── Loading ──
+  if (loadingUser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#DAD1CA' }}>
+        <div className="animate-spin w-8 h-8 border-2 rounded-full" style={{ borderColor: '#B6AB9C', borderTopColor: 'transparent' }} />
+      </div>
+    );
+  }
+
+  // ── Main render ──
+  return (
+    <div className="min-h-screen pb-28" style={{ background: 'url(/icons/background.jpg) center/cover fixed', backgroundColor: '#DAD1CA' }}>
+      <div className="max-w-2xl mx-auto px-4 py-6">
+
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-5">
+          <Image src="/icons/compare.png" alt="השוואה" width={32} height={32} />
+          <h1 className="text-xl font-bold" style={{ color: '#4F483F', fontFamily: 'Rubik, Heebo, sans-serif' }}>
+            השוואת סל קניות
+          </h1>
+        </div>
+
+        {/* Not logged in */}
+        {!loggedIn ? (
+          <div className="flex flex-col items-center gap-4 p-10 rounded-3xl text-center" style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.5)' }}>
+            <ShoppingCart size={48} style={{ color: '#B6AB9C' }} />
+            <p className="font-semibold" style={{ color: '#4F483F' }}>יש להתחבר כדי להשוות</p>
+            <Link href="/login" className="text-sm px-5 py-2 rounded-xl font-medium" style={{ background: '#BF2C2C', color: 'white' }}>התחבר</Link>
+          </div>
+
+        ) : listItems.length === 0 ? (
+          <div className="flex flex-col items-center gap-4 p-10 rounded-3xl text-center" style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.5)' }}>
+            <ShoppingCart size={48} style={{ color: '#B6AB9C' }} />
+            <p className="font-semibold" style={{ color: '#4F483F' }}>רשימת הקניות ריקה</p>
+            <p className="text-sm" style={{ color: '#8a7f75' }}>הוסף מוצרים לרשימה כדי להשוות מחירים</p>
+            <Link href="/search" className="text-sm px-5 py-2 rounded-xl font-medium" style={{ background: '#BF2C2C', color: 'white' }}>חפש מוצרים</Link>
+          </div>
+
+        ) : (
+          <>
+            {/* Summary bar */}
+            <div className="rounded-2xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap" style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.4)' }}>
+              <ShoppingCart size={18} style={{ color: '#8a7f75', flexShrink: 0 }} />
+              <p className="text-sm" style={{ color: '#4F483F' }}>
+                <span className="font-bold">{currentItems.length}</span> מוצרים ברשימה
+              </p>
+              {location && (
+                <div className="flex items-center gap-1 mr-auto">
+                  <MapPin size={14} style={{ color: '#BF2C2C' }} />
+                  <span className="text-xs" style={{ color: '#8a7f75' }}>{location.label}</span>
+                  <button onClick={() => { setLocation(null); setStores([]); setCompared(false); }} style={{ color: '#8a7f75', marginRight: 4 }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Location step */}
+            {!location && (
+              <div className="mb-5">
+                <LocationStep onLocate={handleLocate} />
+              </div>
+            )}
+
+            {/* Radius selector */}
+            {location && (
+              <div className="rounded-2xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap" style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.4)' }}>
+                <span className="text-sm" style={{ color: '#4F483F' }}>רדיוס חיפוש:</span>
+                {[5, 10, 15, 25].map(r => (
+                  <button
+                    key={r}
+                    onClick={() => { setRadiusKm(r); setCompared(false); }}
+                    className="text-xs px-3 py-1.5 rounded-xl font-medium"
+                    style={{
+                      background: radiusKm === r ? '#4F483F' : 'rgba(255,255,255,0.5)',
+                      color: radiusKm === r ? 'white' : '#4F483F',
+                      border: '1px solid rgba(182,171,156,0.4)',
+                    }}
+                  >
+                    {r} ק&quot;מ
+                  </button>
+                ))}
+                <button
+                  onClick={() => runCompare(currentItems, location, radiusKm)}
+                  disabled={comparing}
+                  className="mr-auto text-xs px-3 py-1.5 rounded-xl font-medium flex items-center gap-1"
+                  style={{ background: '#BF2C2C', color: 'white', opacity: comparing ? 0.7 : 1 }}
+                >
+                  {comparing
+                    ? <div className="animate-spin w-3 h-3 border-2 rounded-full" style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: 'white' }} />
+                    : <RefreshCw size={13} />}
+                  {comparing ? 'מחשב...' : 'חשב מחדש'}
+                </button>
+              </div>
+            )}
+
+            {/* Comparing spinner */}
+            {comparing && (
+              <div className="flex flex-col items-center gap-3 py-10">
+                <div className="animate-spin w-10 h-10 border-3 rounded-full" style={{ borderColor: '#B6AB9C', borderTopColor: '#BF2C2C', borderWidth: 3 }} />
+                <p className="text-sm font-medium" style={{ color: '#4F483F' }}>מחפש חנויות ומחשב מחירים...</p>
+                <p className="text-xs" style={{ color: '#8a7f75' }}>זה עשוי לקחת כמה שניות</p>
+              </div>
+            )}
+
+            {/* Error */}
+            {compareError && (
+              <div className="rounded-2xl p-4 mb-4" style={{ background: 'rgba(191,44,44,0.08)', border: '1px solid rgba(191,44,44,0.25)' }}>
+                <p className="text-sm text-center" style={{ color: '#BF2C2C' }}>{compareError}</p>
+              </div>
+            )}
+
+            {/* No stores found */}
+            {compared && stores.length === 0 && !comparing && (
+              <div className="rounded-3xl p-8 text-center" style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.5)' }}>
+                <MapPin size={36} style={{ color: '#B6AB9C', margin: '0 auto 12px' }} />
+                <p className="font-semibold" style={{ color: '#4F483F' }}>לא נמצאו חנויות באזור</p>
+                <p className="text-sm mt-1" style={{ color: '#8a7f75' }}>נסה להגדיל את רדיוס החיפוש</p>
+              </div>
+            )}
+
+            {/* Results */}
+            {stores.length > 0 && (
+              <div ref={resultsRef} className="flex flex-col gap-3">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm font-bold" style={{ color: '#4F483F' }}>
+                    {stores.length} חנויות נמצאו
+                  </p>
+                  <p className="text-xs" style={{ color: '#8a7f75' }}>ממוינות לפי כיסוי ומחיר</p>
+                </div>
+                {stores.map((store, idx) => (
+                  <StoreCard
+                    key={store.store_key}
+                    store={store}
+                    rank={idx + 1}
+                    totalItems={currentItems.length}
+                    onReplace={handleReplace}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,166 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&family=Rubik:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --font-heebo: 'Heebo', sans-serif;
+  --beige-bg: #DAD1CA;
+  --beige-card: #E9D8C5;
+  --beige-border: #B6AB9C;
+  --beige-dark: #4F483F;
+  --beige-divider: rgba(214, 205, 190, 0.71);
+  --red-promo: #BF2C2C;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-heebo), sans-serif;
+  direction: rtl;
+  background-color: var(--beige-bg);
+}
+
+/* ─── Animations ─────────────────────────────────────────── */
+
+/* Fire icon pulse — matches FlutterFlow TintEffect loop */
+@keyframes firePulse {
+  0%, 100% { filter: brightness(1) saturate(1); transform: scale(1); }
+  50%       { filter: brightness(1.4) saturate(1.3); transform: scale(1.12); }
+}
+
+/* Card slide-up entrance */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Carousel auto-scroll (infinite marquee) */
+@keyframes scrollCarousel {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* Logo fade-in drop */
+@keyframes logoDrop {
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Cart icon bounce on load */
+@keyframes cartBounce {
+  0%, 100% { transform: translateY(0); }
+  30%       { transform: translateY(-8px); }
+  60%       { transform: translateY(-3px); }
+}
+
+/* Shimmer for loading skeleton */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+/* ─── Utility classes ─────────────────────────────────────── */
+
+.animate-fire {
+  animation: firePulse 0.6s ease-in-out infinite alternate;
+}
+
+.animate-logo-drop {
+  animation: logoDrop 0.5s ease-out both;
+}
+
+.animate-cart-bounce {
+  animation: cartBounce 0.8s ease-out 0.3s both;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out both;
+}
+
+/* Staggered card delays */
+.animate-slide-up-1 { animation: slideUp 0.4s ease-out 0.05s both; }
+.animate-slide-up-2 { animation: slideUp 0.4s ease-out 0.10s both; }
+.animate-slide-up-3 { animation: slideUp 0.4s ease-out 0.15s both; }
+.animate-slide-up-4 { animation: slideUp 0.4s ease-out 0.20s both; }
+.animate-slide-up-5 { animation: slideUp 0.4s ease-out 0.25s both; }
+.animate-slide-up-6 { animation: slideUp 0.4s ease-out 0.30s both; }
+
+/* Infinite horizontal carousel track */
+.carousel-track {
+  display: flex;
+  gap: 12px;
+  animation: scrollCarousel 28s linear infinite;
+  will-change: transform;
+}
+
+.carousel-track:hover {
+  animation-play-state: paused;
+}
+
+/* Carousel wrapper — hides overflow, enables touch scroll */
+.carousel-wrapper {
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+/* Shimmer skeleton */
+.skeleton {
+  background: linear-gradient(90deg, #e8ddd5 25%, #f0e8e0 50%, #e8ddd5 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 16px;
+}
+
+/* ─── Component classes ───────────────────────────────────── */
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary-500 hover:bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+
+  .btn-secondary {
+    @apply bg-white hover:bg-gray-50 text-gray-700 font-semibold py-2 px-4 rounded-lg border border-gray-200 transition-colors duration-200;
+  }
+
+  /* Beige semi-transparent button — matches FlutterFlow button style */
+  .btn-beige {
+    background: rgba(233, 216, 197, 0.8);
+    color: #4F483F;
+    @apply font-semibold py-2 px-6 rounded-full shadow-md hover:shadow-lg transition-all duration-200 hover:bg-opacity-100 active:scale-95;
+  }
+
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-4;
+  }
+
+  /* Product card — matches FlutterFlow 120×120 card */
+  .product-card-hot {
+    background: white;
+    border: 2px solid #B6AB9C;
+    @apply rounded-3xl flex flex-col items-center p-2 cursor-pointer;
+    @apply hover:scale-105 transition-transform duration-200;
+    @apply shadow-sm hover:shadow-md;
+    width: 130px;
+    flex-shrink: 0;
+  }
+
+  /* Smaller promo card */
+  .product-card-promo {
+    background: white;
+    @apply rounded-3xl overflow-hidden cursor-pointer;
+    @apply hover:scale-105 transition-transform duration-200;
+    @apply shadow-sm hover:shadow-md;
+    width: 100px;
+    height: 100px;
+    flex-shrink: 0;
+  }
+
+  .input {
+    @apply w-full border border-gray-200 rounded-lg px-4 py-2.5 text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition;
+  }
+}

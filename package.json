@@ -1,0 +1,42 @@
+{
+  "name": "superzol-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.3.0",
+    "@supabase/supabase-js": "^2.43.4",
+    "@zxing/browser": "^0.2.0",
+    "@zxing/library": "^0.22.0",
+    "algoliasearch": "^4.24.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.378.0",
+    "next": "14.2.3",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-hot-toast": "^2.4.1",
+    "react-instantsearch": "^7.12.4",
+    "react-instantsearch-nextjs": "^0.3.8",
+    "tailwind-merge": "^2.3.0",
+    "typesense": "^1.8.2",
+    "typesense-instantsearch-adapter": "^2.8.0",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}

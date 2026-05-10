@@ -385,11 +385,11 @@ export async function getProductPrices(itemCode: string) {
       const storeIds = _storeIdCache[collection] || [];
       if (storeIds.length === 0) return null;
 
-      // Try stores in parallel batches of 10, stop as soon as we find the product
-      const BATCH = 10;
+      // Check all stores (up to 50) in parallel batches of 20 to find the cheapest price
+      const BATCH = 20;
       const allDocs: Record<string, unknown>[] = [];
 
-      for (let i = 0; i < Math.min(storeIds.length, 30); i += BATCH) {
+      for (let i = 0; i < Math.min(storeIds.length, 50); i += BATCH) {
         const batch = storeIds.slice(i, i + BATCH);
         const batchDocs = await Promise.all(
           batch.map(async (sid) => {
@@ -407,14 +407,17 @@ export async function getProductPrices(itemCode: string) {
         );
         const found = batchDocs.filter(Boolean) as Record<string, unknown>[];
         allDocs.push(...found);
-        if (allDocs.length > 0 && i === 0) break;
       }
 
       if (allDocs.length === 0) return null;
+
+      // Pick the document with the lowest price for this chain
+      allDocs.sort((a, b) => (a.item_price as number) - (b.item_price as number));
+
       return {
         chainId,
         chainName: CHAIN_NAMES[chainId] || chainId,
-        hits: allDocs.map(doc => ({ document: doc })),
+        hits: [{ document: allDocs[0] }],  // Only the cheapest store
       };
     })
   );

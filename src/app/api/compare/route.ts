@@ -73,11 +73,23 @@ export type ItemResult = {
   found: boolean;
   price: number | null;
   total: number | null;
+  // Group item fields
+  group_label?: string;       // Display name of the group (e.g. "שמן קנולה/חמניות")
+  resolved_item_code?: string; // Actual barcode that was found (same as item_code when found)
+};
+
+// Input item type (supports both regular and group items)
+type InputItem = {
+  item_code: string;
+  item_name: string;
+  quantity: number;
+  candidate_codes?: string[]; // For group items: all barcodes in the group
+  group_label?: string;       // For group items: display name of the group
 };
 
 /**
  * POST /api/compare
- * Body: { lat, lng, radius_km, items: [{item_code, item_name, quantity}] }
+ * Body: { lat, lng, radius_km, items: [{item_code, item_name, quantity, candidate_codes?, group_label?}] }
  * Returns: stores sorted by products_found DESC, total_price ASC
  */
 export async function POST(request: NextRequest) {
@@ -87,7 +99,7 @@ export async function POST(request: NextRequest) {
       lat: number;
       lng: number;
       radius_km?: number;
-      items: { item_code: string; item_name: string; quantity: number }[];
+      items: InputItem[];
     };
 
     if (!lat || !lng || !items?.length) {
@@ -121,20 +133,21 @@ export async function POST(request: NextRequest) {
 
     const storeResults: StoreResult[] = [];
 
-    // 3. For each chain, for each store, look up all items by direct doc ID
-    //    Doc ID format: chain_id-paddedStoreId-barcode
+    // 3. For each chain, for each store, look up all items
     await Promise.all(
       Object.entries(chainStoreMap).map(async ([chainId, stores]) => {
         const collection = `products_${chainId}`;
         const sidVariants = stores.map(s => ({ store: s, variants: storeIdVariants(s.store_id) }));
 
+        // Use only regular items (non-group) for store_id variant resolution
+        const regularItems = items.filter(i => !i.candidate_codes?.length);
+
         await Promise.all(
           sidVariants.map(async ({ store, variants }) => {
             // Resolve which store_id variant has data by checking multiple items
             let resolvedSid = variants[0];
-            if (variants.length > 1 && items.length > 0) {
-              // Try up to 3 items to find the right variant
-              const testItems = items.slice(0, 3);
+            if (variants.length > 1 && regularItems.length > 0) {
+              const testItems = regularItems.slice(0, 3);
               outer: for (const sid of variants) {
                 for (const testItem of testItems) {
                   const testDoc = await tsGetDoc(collection, `${chainId}-${sid}-${testItem.item_code}`);
@@ -153,7 +166,67 @@ export async function POST(request: NextRequest) {
 
             await Promise.all(
               items.map(async (item) => {
-                // Try resolved sid first, then all variants
+                // ── GROUP ITEM: try all candidate codes, pick cheapest ──
+                if (item.candidate_codes && item.candidate_codes.length > 0) {
+                  // Try all candidates in parallel
+                  const candidateResults = await Promise.all(
+                    item.candidate_codes.map(async (code) => {
+                      // Try resolved sid first
+                      let doc = await tsGetDoc(collection, `${chainId}-${resolvedSid}-${code}`);
+                      // Fallback to other variants
+                      if (!doc || !(doc.item_price > 0)) {
+                        for (const sid of variants) {
+                          if (sid === resolvedSid) continue;
+                          const altDoc = await tsGetDoc(collection, `${chainId}-${sid}-${code}`);
+                          if (altDoc && altDoc.item_price > 0) {
+                            doc = altDoc;
+                            break;
+                          }
+                        }
+                      }
+                      if (doc && doc.item_price > 0) {
+                        return { code, doc, price: doc.item_price as number };
+                      }
+                      return null;
+                    })
+                  );
+
+                  // Filter to found candidates and pick cheapest
+                  const validCandidates = candidateResults.filter(Boolean) as { code: string; doc: Record<string, unknown>; price: number }[];
+
+                  if (validCandidates.length > 0) {
+                    // Sort by price ascending, pick cheapest
+                    validCandidates.sort((a, b) => a.price - b.price);
+                    const cheapest = validCandidates[0];
+                    const total = cheapest.price * item.quantity;
+                    totalPrice += total;
+                    found++;
+                    itemResults.push({
+                      item_code: cheapest.code,
+                      item_name: (cheapest.doc.item_name as string) || item.group_label || item.item_name,
+                      quantity: item.quantity,
+                      found: true,
+                      price: cheapest.price,
+                      total,
+                      group_label: item.group_label,
+                      resolved_item_code: cheapest.code,
+                    });
+                  } else {
+                    // No candidate found in this store
+                    itemResults.push({
+                      item_code: 'group',
+                      item_name: item.group_label || item.item_name,
+                      quantity: item.quantity,
+                      found: false,
+                      price: null,
+                      total: null,
+                      group_label: item.group_label,
+                    });
+                  }
+                  return;
+                }
+
+                // ── REGULAR ITEM: direct doc lookup ──
                 let doc = await tsGetDoc(collection, `${chainId}-${resolvedSid}-${item.item_code}`);
 
                 // If not found with resolved sid, try other variants

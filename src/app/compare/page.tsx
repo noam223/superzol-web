@@ -10,10 +10,18 @@ import {
 import { supabase } from '@/lib/supabase';
 import { PRODUCTS_INDEX } from '@/lib/typesense';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
+import { getUserLocation, saveUserLocation } from '@/lib/location';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ListItem = { item_code: string; item_name: string; quantity: number };
+type ListItem = {
+  item_code: string;
+  item_name: string;
+  quantity: number;
+  group_id?: string | null;
+  group_label?: string;
+  candidate_codes?: string[];
+};
 
 type ItemResult = {
   item_code: string;
@@ -22,6 +30,8 @@ type ItemResult = {
   found: boolean;
   price: number | null;
   total: number | null;
+  group_label?: string;
+  resolved_item_code?: string;
 };
 
 type StoreResult = {
@@ -111,24 +121,20 @@ async function searchSubstitutes(
     const firstWord = words[0];
     const twoWords = words.slice(0, 2).join(' ');
 
-    // Search with 2 words (primary) and 1 word (secondary) in parallel
     const [primary, secondary] = await Promise.all([
       fetchCandidates(twoWords, excludeCode),
       firstWord !== twoWords ? fetchCandidates(firstWord, excludeCode) : Promise.resolve([]),
     ]);
 
-    // Merge: primary first, then secondary items not already in primary
     const primaryCodes = new Set(primary.map(p => p.item_code));
     const merged = [...primary, ...secondary.filter(p => !primaryCodes.has(p.item_code))];
 
-    // Check each candidate exists in the specific store with a real price
     const checked = await Promise.all(
       merged.map(async (p) => {
         const inStore = await checkItemInStore(chainId, storeId, p.item_code);
         return inStore ? p : null;
       })
     );
-    // Return all found items (no limit) so user can scroll
     return checked.filter(Boolean) as IndexProduct[];
   } catch { return []; }
 }
@@ -146,9 +152,9 @@ function SubstituteSheet({
 }) {
   const [results, setResults] = useState<IndexProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  // Display only first word in the search box, but search with first 2 words initially
-  const firstWord = item.item_name.split(' ')[0];
-  const twoWords = item.item_name.split(' ').slice(0, 2).join(' ');
+  const displayName = item.group_label || item.item_name;
+  const firstWord = displayName.split(' ')[0];
+  const twoWords = displayName.split(' ').slice(0, 2).join(' ');
   const [query, setQuery] = useState(firstWord);
 
   const doSearch = useCallback(async (q: string) => {
@@ -157,7 +163,6 @@ function SubstituteSheet({
     setLoading(false);
   }, [item.item_code, chainId, storeId]);
 
-  // Initial search uses 2 words for better results, but box shows only first word
   useEffect(() => { doSearch(twoWords); }, [twoWords, doSearch]);
 
   return (
@@ -172,7 +177,7 @@ function SubstituteSheet({
         </div>
         <div className="flex items-center justify-between px-5 pb-3 pt-1">
           <h3 className="font-bold text-base" style={{ color: '#4F483F' }}>
-            תחליפים עבור: <span className="font-normal text-sm">{item.item_name}</span>
+            תחליפים עבור: <span className="font-normal text-sm">{displayName}</span>
           </h3>
           <button onClick={onClose} style={{ color: '#8a7f75' }}><X size={20} /></button>
         </div>
@@ -192,7 +197,6 @@ function SubstituteSheet({
             </button>
           </div>
         </div>
-        {/* pb-24 ensures last item is not hidden behind bottom navbar */}
         <div className="overflow-y-auto px-5 pb-24 flex flex-col gap-2" style={{ overscrollBehavior: 'contain' }}>
           {loading ? (
             <div className="flex justify-center py-8">
@@ -293,22 +297,36 @@ function StoreCard({
         {/* Product list accordion */}
         {open && (
           <div className="px-4 pb-4 pt-2 flex flex-col gap-2">
-            {store.items.map(item => (
+            {store.items.map((item, idx) => (
               <div
-                key={item.item_code}
+                key={`${item.item_code}-${idx}`}
                 className="flex items-center gap-3 p-2.5 rounded-2xl"
                 style={{
                   background: item.found ? 'rgba(255,255,255,0.6)' : 'rgba(191,44,44,0.06)',
                   border: item.found ? '1px solid rgba(182,171,156,0.25)' : '1px solid rgba(191,44,44,0.2)',
                 }}
               >
-                <ProductImg itemCode={item.item_code} name={item.item_name} size={36} />
+                {/* Image: use resolved item_code for group items */}
+                <ProductImg
+                  itemCode={item.found ? item.item_code : ''}
+                  name={item.group_label || item.item_name}
+                  size={36}
+                />
                 <div className="flex-1 min-w-0">
+                  {/* Group label badge */}
+                  {item.group_label && (
+                    <p className="text-xs font-bold mb-0.5" style={{ color: '#BF2C2C' }}>
+                      📦 {item.group_label}
+                    </p>
+                  )}
                   <p
                     className="text-sm font-medium leading-tight"
                     style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}
                   >
-                    {item.item_name}
+                    {item.found
+                      ? item.item_name  // Actual resolved product name
+                      : (item.group_label || item.item_name)  // Group name when not found
+                    }
                   </p>
                   {item.quantity > 1 && <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>}
                 </div>
@@ -453,25 +471,61 @@ export default function ComparePage() {
   const [currentItems, setCurrentItems] = useState<ListItem[]>([]);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  // Load user + shopping list
+  // Load user + shopping list + saved location
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { setLoadingUser(false); return; }
       setLoggedIn(true);
-      const { data: items } = await supabase
+
+      // Load shopping list items (including group_id)
+      const { data: rawItems } = await supabase
         .from('shopping_list_items')
-        .select('item_code, item_name, quantity')
-        .eq('user_id', user.id);
-      if (items?.length) {
+        .select('item_code, item_name, quantity, group_id')
+        .eq('user_id', user.id)
+        .eq('checked', false);
+
+      if (rawItems?.length) {
+        // Resolve each item: regular items get enriched from index, group items get candidate codes
         const enriched = await Promise.all(
-          (items as ListItem[]).map(async item => {
+          (rawItems as { item_code: string; item_name: string; quantity: number; group_id: string | null }[]).map(async (item) => {
+            // ── Group item ──
+            if (item.item_code === 'group' && item.group_id) {
+              const { data: groupItems } = await supabase
+                .from('product_group_items')
+                .select('item_code')
+                .eq('group_id', item.group_id);
+
+              const candidateCodes = (groupItems || []).map((gi: { item_code: string }) => gi.item_code);
+              return {
+                item_code: 'group',
+                item_name: item.item_name,
+                quantity: item.quantity,
+                group_id: item.group_id,
+                group_label: item.item_name,
+                candidate_codes: candidateCodes,
+              } as ListItem;
+            }
+
+            // ── Regular item: enrich name from index ──
             const p = await fetchProductFromIndex(item.item_code);
-            return { item_code: item.item_code, item_name: p?.item_name || item.item_name, quantity: item.quantity };
-          }),
+            return {
+              item_code: item.item_code,
+              item_name: p?.item_name || item.item_name,
+              quantity: item.quantity,
+            } as ListItem;
+          })
         );
+
         setListItems(enriched);
         setCurrentItems(enriched);
       }
+
+      // Load saved location
+      const savedLoc = await getUserLocation();
+      if (savedLoc) {
+        setLocation(savedLoc);
+      }
+
       setLoadingUser(false);
     });
   }, []);
@@ -505,23 +559,24 @@ export default function ComparePage() {
   }, [location, currentItems, compared, comparing, radiusKm, runCompare]);
 
   const handleLocate = (lat: number, lng: number, label: string) => {
-    setLocation({ lat, lng, label });
+    const loc = { lat, lng, label };
+    setLocation(loc);
     setCompared(false);
     setStores([]);
+    // Save location for next time
+    saveUserLocation(lat, lng, label);
   };
 
   const handleReplace = useCallback((storeKey: string, oldCode: string, newItem: ListItem) => {
-    // Replace only in the specific store's item list, not globally
     setStores(prev => prev.map(store => {
       if (store.store_key !== storeKey) return store;
       const updatedItems = store.items.map(item => {
         if (item.item_code !== oldCode) return item;
-        // Mark as found with the new item's price from products_index
         return {
           item_code: newItem.item_code,
           item_name: newItem.item_name,
           quantity: item.quantity,
-          found: false, // will be re-checked on next compare
+          found: false,
           price: null,
           total: null,
         };
@@ -536,7 +591,6 @@ export default function ComparePage() {
         total_price: total,
       };
     }));
-    // Don't reset compared - keep showing results with the replacement
   }, []);
 
   // ── Loading ──

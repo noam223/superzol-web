@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ShoppingCart, Trash2, Check, Plus, Search } from 'lucide-react';
+import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -164,22 +164,28 @@ export default function ShoppingListPage() {
                         className="w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors"
                         style={{ borderColor: '#B6AB9C' }}
                       />
-                      {/* Name + barcode */}
+                      {/* Name + type */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
+                          {item.group_id && (
+                            <span className="text-base shrink-0">📦</span>
+                          )}
                           <p className="font-medium text-sm truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
                             {item.item_name}
                           </p>
-                          {item.group_id && (
-                            <span
-                              className="text-xs px-1.5 py-0.5 rounded-full font-bold shrink-0"
-                              style={{ background: 'rgba(191, 44, 44, 0.1)', color: '#BF2C2C' }}
-                            >
-                              🏷️
-                            </span>
-                          )}
                         </div>
-                        <p className="text-xs" style={{ color: '#B6AB9C' }}>{item.item_code}</p>
+                        {item.group_id ? (
+                          <Link
+                            href={`/compare?group=${item.group_id}`}
+                            className="text-xs flex items-center gap-1 mt-0.5"
+                            style={{ color: '#BF2C2C' }}
+                          >
+                            <GitCompare size={11} />
+                            השווה מחירים
+                          </Link>
+                        ) : (
+                          <p className="text-xs" style={{ color: '#B6AB9C' }}>{item.item_code}</p>
+                        )}
                       </div>
                       {/* Quantity */}
                       <div className="flex items-center gap-1">

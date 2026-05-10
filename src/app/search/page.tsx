@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Search, X, ChevronLeft, ScanBarcode, GitCompare } from 'lucide-react';
+import { Search, X, ChevronLeft, ScanBarcode, ShoppingCart } from 'lucide-react';
 import { searchProductsIndex, fetchAllGroupItemCodes, isValidManufacturerName, formatUnitInfo, getProductByItemCode, IndexProduct } from '@/lib/typesense';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { supabase } from '@/lib/supabase';
@@ -54,10 +54,9 @@ function ProductImage({ itemCode, name, size = 64 }: { itemCode: string; name: s
 }
 
 // ── Group card ───────────────────────────────────────────────────────────────
-function GroupCard({ group }: { group: ProductGroup }) {
+function GroupCard({ group, onAdd }: { group: ProductGroup; onAdd: (group: ProductGroup) => void }) {
   return (
-    <Link
-      href={`/compare?group=${group.id}`}
+    <div
       className="flex gap-3 p-3 rounded-2xl items-center"
       style={{
         background: 'rgba(191, 44, 44, 0.08)',
@@ -85,18 +84,20 @@ function GroupCard({ group }: { group: ProductGroup }) {
           {group.name}
         </h3>
         <p className="text-xs mt-0.5" style={{ color: '#8a7f75' }}>
-          השווה מחירים בין רשתות
+          מוצר חכם · ישווה מחירים בין רשתות
         </p>
       </div>
 
-      {/* Arrow */}
-      <div
-        className="flex items-center justify-center rounded-xl shrink-0"
-        style={{ width: 36, height: 36, background: 'rgba(191, 44, 44, 0.1)', color: '#BF2C2C' }}
+      {/* Add to list button */}
+      <button
+        onClick={() => onAdd(group)}
+        className="flex items-center justify-center rounded-xl shrink-0 font-bold transition-opacity hover:opacity-70 active:opacity-50"
+        style={{ width: 40, height: 40, background: 'rgba(191, 44, 44, 0.12)', color: '#BF2C2C' }}
+        title="הוסף לרשימת קניות"
       >
-        <GitCompare size={16} />
-      </div>
-    </Link>
+        <ShoppingCart size={17} />
+      </button>
+    </div>
   );
 }
 
@@ -220,6 +221,25 @@ export default function SearchPage() {
     else toast.success(`${product.item_name} נוסף לרשימה`);
   };
 
+  const handleAddGroupToList = async (group: ProductGroup) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error('התחבר כדי לשמור לרשימת קניות');
+      return;
+    }
+    // Insert group as a shopping list item with group_id
+    const { error } = await supabase.from('shopping_list_items').insert({
+      user_id: user.id,
+      item_code: 'group',
+      item_name: group.name,
+      quantity: 1,
+      checked: false,
+      group_id: group.id,
+    });
+    if (error) toast.error('שגיאה בהוספה לרשימה');
+    else toast.success(`📦 ${group.name} נוסף לרשימה`);
+  };
+
   return (
     <div className="min-h-screen pb-28" style={{ background: 'url(/icons/background.jpg) center/cover fixed', backgroundColor: '#DAD1CA' }}>
       <div className="max-w-2xl mx-auto px-4 py-6">
@@ -310,7 +330,7 @@ export default function SearchPage() {
             </p>
             <div className="flex flex-col gap-2">
               {matchingGroups.map(group => (
-                <GroupCard key={group.id} group={group} />
+                <GroupCard key={group.id} group={group} onAdd={handleAddGroupToList} />
               ))}
             </div>
           </div>

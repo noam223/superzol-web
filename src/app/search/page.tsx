@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Search, X, ChevronLeft, ScanBarcode } from 'lucide-react';
-import { searchProductsIndex, fetchAllGroupItemCodes, isValidManufacturerName, formatUnitInfo, getProductByItemCode, IndexProduct, CHAIN_NAMES } from '@/lib/typesense';
+import { Search, X, ChevronLeft, ScanBarcode, GitCompare } from 'lucide-react';
+import { searchProductsIndex, fetchAllGroupItemCodes, isValidManufacturerName, formatUnitInfo, getProductByItemCode, IndexProduct } from '@/lib/typesense';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { supabase } from '@/lib/supabase';
 import toast from 'react-hot-toast';
@@ -11,7 +11,14 @@ import dynamic from 'next/dynamic';
 
 const BarcodeScanner = dynamic(() => import('@/components/BarcodeScanner'), { ssr: false });
 
-// Product image with local-first + CDN fallback
+// ── Types ────────────────────────────────────────────────────────────────────
+type ProductGroup = {
+  id: string;
+  name: string;
+  image_item_code: string | null;
+};
+
+// ── Product image with local-first + CDN fallback ────────────────────────────
 function ProductImage({ itemCode, name, size = 64 }: { itemCode: string; name: string; size?: number }) {
   const [src, setSrc] = useState(() => itemCode ? getProductImageUrl(itemCode) : '');
   const [failed, setFailed] = useState(!itemCode);
@@ -46,6 +53,54 @@ function ProductImage({ itemCode, name, size = 64 }: { itemCode: string; name: s
   );
 }
 
+// ── Group card ───────────────────────────────────────────────────────────────
+function GroupCard({ group }: { group: ProductGroup }) {
+  return (
+    <Link
+      href={`/compare?group=${group.id}`}
+      className="flex gap-3 p-3 rounded-2xl items-center"
+      style={{
+        background: 'rgba(191, 44, 44, 0.08)',
+        border: '1.5px solid rgba(191, 44, 44, 0.3)',
+      }}
+    >
+      {/* Group image */}
+      <ProductImage
+        itemCode={group.image_item_code || ''}
+        name={group.name}
+        size={64}
+      />
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span
+            className="text-xs px-2 py-0.5 rounded-full font-bold"
+            style={{ background: 'rgba(191, 44, 44, 0.15)', color: '#BF2C2C' }}
+          >
+            📦 קבוצה
+          </span>
+        </div>
+        <h3 className="font-bold text-sm leading-snug" style={{ color: '#4F483F' }}>
+          {group.name}
+        </h3>
+        <p className="text-xs mt-0.5" style={{ color: '#8a7f75' }}>
+          השווה מחירים בין רשתות
+        </p>
+      </div>
+
+      {/* Arrow */}
+      <div
+        className="flex items-center justify-center rounded-xl shrink-0"
+        style={{ width: 36, height: 36, background: 'rgba(191, 44, 44, 0.1)', color: '#BF2C2C' }}
+      >
+        <GitCompare size={16} />
+      </div>
+    </Link>
+  );
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
 export default function SearchPage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<IndexProduct[]>([]);
@@ -53,22 +108,31 @@ export default function SearchPage() {
   const [searched, setSearched] = useState(false);
   const [found, setFound] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [groupItemCodes, setGroupItemCodes] = useState<Set<string>>(new Set());
-  // Keep a ref so handleSearch always sees the latest value without re-creating
   const groupItemCodesRef = useRef<Set<string>>(new Set());
   const [showScanner, setShowScanner] = useState(false);
 
-  // Load group item codes once on mount for client-side boosting
+  // All groups loaded once on mount
+  const [allGroups, setAllGroups] = useState<ProductGroup[]>([]);
+  const [matchingGroups, setMatchingGroups] = useState<ProductGroup[]>([]);
+
+  // Load group item codes + all groups on mount
   useEffect(() => {
     fetchAllGroupItemCodes().then(codes => {
-      setGroupItemCodes(codes);
       groupItemCodesRef.current = codes;
     });
+
+    supabase
+      .from('product_groups')
+      .select('id, name, image_item_code')
+      .then(({ data }) => {
+        if (data) setAllGroups(data as ProductGroup[]);
+      });
   }, []);
 
   const handleSearch = useCallback(async (q: string) => {
     if (!q.trim()) {
       setResults([]);
+      setMatchingGroups([]);
       setSearched(false);
       setFound(0);
       return;
@@ -76,8 +140,15 @@ export default function SearchPage() {
     setLoading(true);
     setSearched(true);
 
+    // Filter groups by name (client-side, case-insensitive)
+    const qLower = q.toLowerCase();
+    const matched = allGroups.filter(g =>
+      g.name.toLowerCase().includes(qLower) ||
+      qLower.split(/\s+/).some(word => word.length >= 2 && g.name.includes(word))
+    );
+    setMatchingGroups(matched);
+
     try {
-      // Use ref so we always have the latest groupItemCodes even if state hasn't updated yet
       const { hits, found } = await searchProductsIndex(q, { perPage: 30, groupItemCodes: groupItemCodesRef.current });
       setResults(hits);
       setFound(found);
@@ -87,7 +158,7 @@ export default function SearchPage() {
     } finally {
       setLoading(false);
     }
-  }, []); // no dependency on groupItemCodes — uses ref instead
+  }, [allGroups]);
 
   // Debounce: search 300ms after user stops typing
   useEffect(() => {
@@ -112,12 +183,14 @@ export default function SearchPage() {
       if (product) {
         setResults([product]);
         setFound(1);
+        setMatchingGroups([]);
         toast.success(`נמצא: ${product.item_name}`, { duration: 2500 });
       } else {
         // Fallback: text search with the barcode number
         const { hits, found } = await searchProductsIndex(code, { perPage: 10, groupItemCodes: groupItemCodesRef.current });
         setResults(hits);
         setFound(found);
+        setMatchingGroups([]);
         if (hits.length === 0) {
           toast.error(`מוצר לא נמצא עבור ברקוד ${code}`, { duration: 3000 });
         }
@@ -171,7 +244,7 @@ export default function SearchPage() {
             />
             {query ? (
               <button
-                onClick={() => { setQuery(''); setResults([]); setSearched(false); setFound(0); }}
+                onClick={() => { setQuery(''); setResults([]); setMatchingGroups([]); setSearched(false); setFound(0); }}
                 className="absolute left-3 top-1/2 -translate-y-1/2"
                 style={{ color: '#8a7f75' }}
               >
@@ -188,7 +261,7 @@ export default function SearchPage() {
               </button>
             )}
           </div>
-          {/* Loading spinner instead of search button */}
+          {/* Loading spinner */}
           {loading && (
             <div className="flex items-center px-3">
               <div className="animate-spin w-5 h-5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} />
@@ -206,7 +279,7 @@ export default function SearchPage() {
         )}
 
         {/* Loading skeleton */}
-        {loading && results.length === 0 && (
+        {loading && results.length === 0 && matchingGroups.length === 0 && (
           <div className="flex flex-col gap-3">
             {[1,2,3].map(i => (
               <div key={i} className="flex gap-3 p-3 rounded-2xl animate-pulse" style={{ background: 'rgba(233, 216, 197, 0.6)' }}>
@@ -221,7 +294,7 @@ export default function SearchPage() {
         )}
 
         {/* No results */}
-        {!loading && searched && results.length === 0 && (
+        {!loading && searched && results.length === 0 && matchingGroups.length === 0 && (
           <div className="text-center py-16" style={{ color: '#8a7f75' }}>
             <Search size={48} className="mx-auto mb-3 opacity-30" />
             <p className="text-lg font-medium">לא נמצאו תוצאות עבור &quot;{query}&quot;</p>
@@ -229,26 +302,42 @@ export default function SearchPage() {
           </div>
         )}
 
-        {/* Results */}
+        {/* ── Group results (top section) ── */}
+        {matchingGroups.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs font-bold mb-2" style={{ color: '#BF2C2C' }}>
+              📦 קבוצות מוצרים
+            </p>
+            <div className="flex flex-col gap-2">
+              {matchingGroups.map(group => (
+                <GroupCard key={group.id} group={group} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Regular product results ── */}
         {!loading && results.length > 0 && (
           <>
-            <p className="text-xs mb-3 font-medium" style={{ color: '#8a7f75' }}>
-              נמצאו {found.toLocaleString()} מוצרים עבור &quot;{query}&quot;
-            </p>
+            {matchingGroups.length > 0 && (
+              <p className="text-xs font-bold mb-2 mt-4" style={{ color: '#8a7f75' }}>
+                🔍 מוצרים בודדים
+              </p>
+            )}
+            {!matchingGroups.length && (
+              <p className="text-xs mb-3 font-medium" style={{ color: '#8a7f75' }}>
+                נמצאו {found.toLocaleString()} מוצרים עבור &quot;{query}&quot;
+              </p>
+            )}
             <div className="flex flex-col gap-3">
               {results.map((product) => {
-                const isGroupItem = groupItemCodes.has(product.item_code);
                 return (
                 <div
                   key={product.item_code}
                   className="flex gap-3 p-3 rounded-2xl"
                   style={{
-                    background: isGroupItem
-                      ? 'rgba(191, 44, 44, 0.07)'
-                      : 'rgba(233, 216, 197, 0.85)',
-                    border: isGroupItem
-                      ? '1.5px solid rgba(191, 44, 44, 0.25)'
-                      : '1.5px solid rgba(182, 171, 156, 0.4)',
+                    background: 'rgba(233, 216, 197, 0.85)',
+                    border: '1.5px solid rgba(182, 171, 156, 0.4)',
                   }}
                 >
                   {/* Image */}
@@ -272,14 +361,6 @@ export default function SearchPage() {
                         <p className="text-xs" style={{ color: '#8a7f75' }}>
                           {formatUnitInfo(product)}
                         </p>
-                      )}
-                      {isGroupItem && (
-                        <span
-                          className="text-xs px-1.5 py-0.5 rounded-full font-bold"
-                          style={{ background: 'rgba(191, 44, 44, 0.12)', color: '#BF2C2C' }}
-                        >
-                          🏷️ מומלץ
-                        </span>
                       )}
                     </div>
 

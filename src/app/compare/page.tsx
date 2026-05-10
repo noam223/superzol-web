@@ -567,31 +567,59 @@ export default function ComparePage() {
     saveUserLocation(lat, lng, label);
   };
 
-  const handleReplace = useCallback((storeKey: string, oldCode: string, newItem: ListItem) => {
-    setStores(prev => prev.map(store => {
-      if (store.store_key !== storeKey) return store;
-      const updatedItems = store.items.map(item => {
+  const handleReplace = useCallback(async (storeKey: string, oldCode: string, newItem: ListItem) => {
+    // Find the store to get chainId + storeId
+    const store = stores.find(s => s.store_key === storeKey);
+    if (!store) return;
+
+    // Look up the new item's price in this specific store
+    let resolvedPrice: number | null = null;
+    try {
+      const res = await fetch(`/api/search?collection=products_${store.chain_id}&doc_id=${store.chain_id}-${store.store_id}-${newItem.item_code}`);
+      if (res.ok) {
+        const doc = await res.json();
+        if (doc && !doc.error && doc.item_price > 0) {
+          resolvedPrice = doc.item_price as number;
+        }
+      }
+    } catch { /* skip */ }
+
+    setStores(prev => prev.map(s => {
+      if (s.store_key !== storeKey) return s;
+      const quantity = s.items.find(i => i.item_code === oldCode)?.quantity ?? 1;
+      const updatedItems = s.items.map(item => {
         if (item.item_code !== oldCode) return item;
+        if (resolvedPrice !== null) {
+          return {
+            item_code: newItem.item_code,
+            item_name: newItem.item_name,
+            quantity,
+            found: true,
+            price: resolvedPrice,
+            total: resolvedPrice * quantity,
+          };
+        }
+        // Price not found in this store — show as missing
         return {
           item_code: newItem.item_code,
           item_name: newItem.item_name,
-          quantity: item.quantity,
+          quantity,
           found: false,
           price: null,
           total: null,
         };
       });
-      const found = updatedItems.filter(i => i.found).length;
+      const foundCount = updatedItems.filter(i => i.found).length;
       const total = updatedItems.reduce((sum, i) => sum + (i.total || 0), 0);
       return {
-        ...store,
+        ...s,
         items: updatedItems,
-        products_found: found,
-        products_missing: updatedItems.length - found,
+        products_found: foundCount,
+        products_missing: updatedItems.length - foundCount,
         total_price: total,
       };
     }));
-  }, []);
+  }, [stores]);
 
   // ── Loading ──
   if (loadingUser) {

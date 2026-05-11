@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Search, X, ChevronLeft, ScanBarcode, ShoppingCart } from 'lucide-react';
-import { searchProductsIndex, fetchAllGroupItemCodes, isValidManufacturerName, formatUnitInfo, getProductByItemCode, IndexProduct } from '@/lib/typesense';
+import { searchProductsIndex, fetchAllGroupItemCodes, isValidManufacturerName, formatUnitInfo, getProductByItemCode, IndexProduct, formatLastUpdated } from '@/lib/typesense';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { supabase } from '@/lib/supabase';
 import toast from 'react-hot-toast';
@@ -380,6 +380,11 @@ export default function SearchPage() {
                       {formatUnitInfo(product) && (
                         <p className="text-xs" style={{ color: '#8a7f75' }}>
                           {formatUnitInfo(product)}
+                        </p>
+                      )}
+                      {formatLastUpdated(product.last_updated) && (
+                        <p className="text-xs" style={{ color: '#B6AB9C' }}>
+                          🕐 {formatLastUpdated(product.last_updated)}
                         </p>
                       )}
                     </div>

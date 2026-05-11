@@ -24,6 +24,7 @@ type ProductGroup = {
   created_at: string;
   item_count?: number;
   image_item_code?: string | null;
+  is_fresh_product?: boolean;
 };
 
 type GroupItem = {
@@ -77,7 +78,14 @@ async function searchProducts(q: string, excludeCodes?: Set<string>): Promise<Se
   const params = new URLSearchParams({
     collection: 'products_index', q,
     query_by: 'item_name,manufacturer_name,manufacturer_item_id',
-    per_page: '30', num_typos: '2', sort_by: 'chain_count:desc,min_price:asc',
+    query_by_weights: '4,1,1',
+    per_page: '50',
+    num_typos: '1',
+    min_len_1typo: '4',
+    min_len_2typo: '7',
+    prefix: 'true,false,false',
+    prioritize_exact_prefix_match: 'true',
+    sort_by: '_text_match:desc,chain_count:desc,min_price:asc',
   });
   try {
     const res = await fetch(`/api/search?${params}`);
@@ -87,7 +95,7 @@ async function searchProducts(q: string, excludeCodes?: Set<string>): Promise<Se
     if (excludeCodes && excludeCodes.size > 0) {
       hits = hits.filter((p: SearchResult) => !excludeCodes.has(p.item_code));
     }
-    return hits.slice(0, 15);
+    return hits;
   } catch { return []; }
 }
 
@@ -124,6 +132,11 @@ function GroupsTab() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [addingItem, setAddingItem] = useState<string | null>(null);
+  // Multi-select state for product search results
+  const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
+  const [addingBulk, setAddingBulk] = useState(false);
+  // Group sidebar filter
+  const [groupFilter, setGroupFilter] = useState('');
   // All item_codes that belong to ANY group (for filtering search results)
   const [allGroupedCodes, setAllGroupedCodes] = useState<Set<string>>(new Set());
   const [showScanner, setShowScanner] = useState(false);
@@ -153,7 +166,7 @@ function GroupsTab() {
   }, []);
 
   const selectGroup = (group: ProductGroup) => {
-    setSelectedGroup(group); setSearchQuery(''); setSearchResults([]);
+    setSelectedGroup(group); setSearchQuery(''); setSearchResults([]); setSelectedCodes(new Set());
     loadGroupItems(group.id);
     setTimeout(() => searchInputRef.current?.focus(), 100);
   };
@@ -184,6 +197,15 @@ function GroupsTab() {
     setGroups(prev => prev.map(g => g.id === groupId ? { ...g, image_item_code: itemCode } : g));
     setSelectedGroup(prev => prev?.id === groupId ? { ...prev, image_item_code: itemCode } : prev);
     toast.success('תמונת הקבוצה עודכנה', { duration: 1200 });
+  };
+
+  const toggleFreshProduct = async (group: ProductGroup) => {
+    const newVal = !group.is_fresh_product;
+    const { error } = await supabase.from('product_groups').update({ is_fresh_product: newVal }).eq('id', group.id);
+    if (error) { toast.error('שגיאה בעדכון'); return; }
+    setGroups(prev => prev.map(g => g.id === group.id ? { ...g, is_fresh_product: newVal } : g));
+    setSelectedGroup(prev => prev?.id === group.id ? { ...prev, is_fresh_product: newVal } : prev);
+    toast.success(newVal ? '🥩 סומן כמוצר טרי' : 'הוסר סימון מוצר טרי', { duration: 1500 });
   };
 
   const toggleItemInGroup = async (product: SearchResult) => {
@@ -242,6 +264,38 @@ function GroupsTab() {
     }
   };
 
+  const addBulkToGroup = async () => {
+    if (!selectedGroup || selectedCodes.size === 0) return;
+    setAddingBulk(true);
+    let addedCount = 0;
+    for (const code of Array.from(selectedCodes)) {
+      const product = searchResults.find(r => r.item_code === code);
+      if (!product) continue;
+      const alreadyIn = groupItems.some(i => i.item_code === code);
+      if (alreadyIn) continue;
+      const { data, error } = await supabase
+        .from('product_group_items')
+        .insert({ group_id: selectedGroup.id, item_code: product.item_code, item_name: product.item_name })
+        .select()
+        .single();
+      if (!error && data) {
+        setGroupItems(prev => [...prev, data]);
+        setAllGroupedCodes(prev => { const s = new Set(prev); s.add(code); return s; });
+        addedCount++;
+        if (!selectedGroup.image_item_code && addedCount === 1) {
+          await setGroupImage(selectedGroup.id, product.item_code);
+        }
+      }
+    }
+    if (addedCount > 0) {
+      setGroups(prev => prev.map(g => g.id === selectedGroup.id ? { ...g, item_count: (g.item_count ?? 0) + addedCount } : g));
+      toast.success(`נוספו ${addedCount} מוצרים ✓`, { duration: 1800 });
+      setSearchResults(prev => prev.filter(r => !selectedCodes.has(r.item_code)));
+    }
+    setSelectedCodes(new Set());
+    setAddingBulk(false);
+  };
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!searchQuery.trim()) { setSearchResults([]); return; }
@@ -296,6 +350,21 @@ function GroupsTab() {
         <button onClick={() => setShowNewGroupForm(v => !v)} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl font-bold text-sm hover:opacity-80" style={{ background: '#BF2C2C', color: 'white', fontFamily: 'Heebo, sans-serif' }}>
           <Plus size={15} /> קבוצה חדשה
         </button>
+        {/* Group filter input */}
+        <div className="relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" size={14} style={{ color: '#8a7f75' }} />
+          <input
+            type="text"
+            placeholder="חפש קבוצה..."
+            value={groupFilter}
+            onChange={e => setGroupFilter(e.target.value)}
+            className="w-full pr-8 pl-3 py-2 rounded-xl text-sm outline-none"
+            style={{ background: 'rgba(255,255,255,0.7)', border: '1.5px solid rgba(182,171,156,0.4)', color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}
+          />
+          {groupFilter && (
+            <button onClick={() => setGroupFilter('')} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: '#8a7f75' }}><X size={13} /></button>
+          )}
+        </div>
         {showNewGroupForm && (
           <div className="rounded-2xl p-3" style={{ background: 'rgba(233,216,197,0.95)', border: '1.5px solid rgba(182,171,156,0.5)' }}>
             <input type="text" placeholder="שם הקבוצה" value={newGroupName} onChange={e => setNewGroupName(e.target.value)} onKeyDown={e => e.key === 'Enter' && createGroup()} autoFocus className="w-full px-3 py-2 rounded-xl text-sm mb-2 outline-none" style={{ background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(182,171,156,0.4)', color: '#4F483F', fontFamily: 'Heebo, sans-serif' }} />
@@ -308,11 +377,14 @@ function GroupsTab() {
         )}
         {groupsLoading ? <div className="flex justify-center py-6"><div className="animate-spin w-5 h-5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} /></div>
           : groups.length === 0 ? <p className="text-sm text-center py-6" style={{ color: '#8a7f75' }}>אין קבוצות עדיין</p>
-          : groups.map(group => (
+          : groups.filter(g => !groupFilter.trim() || g.name.toLowerCase().includes(groupFilter.trim().toLowerCase())).map(group => (
             <div key={group.id} onClick={() => selectGroup(group)} className="flex items-center gap-2 px-3 py-2.5 rounded-2xl cursor-pointer transition-all group" style={{ background: selectedGroup?.id === group.id ? 'rgba(191,44,44,0.1)' : 'rgba(233,216,197,0.85)', border: selectedGroup?.id === group.id ? '1.5px solid rgba(191,44,44,0.35)' : '1.5px solid rgba(182,171,156,0.4)' }}>
               <ProductThumb itemCode={group.image_item_code || ''} name={group.name} />
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{group.name}</p>
+                <p className="font-semibold text-sm truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
+                  {group.is_fresh_product && <span className="mr-1" title="מוצר טרי">🥩</span>}
+                  {group.name}
+                </p>
                 <p className="text-xs" style={{ color: '#8a7f75' }}>{group.item_count ?? 0} מוצרים</p>
               </div>
               <button onClick={e => { e.stopPropagation(); deleteGroup(group); }} className="p-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#BF2C2C' }}><Trash2 size={13} /></button>
@@ -343,6 +415,20 @@ function GroupsTab() {
                 <h2 className="text-lg font-bold truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{selectedGroup.name}</h2>
                 {selectedGroup.description && <p className="text-xs mt-0.5 truncate" style={{ color: '#8a7f75' }}>{selectedGroup.description}</p>}
               </div>
+              {/* Fresh product toggle */}
+              <button
+                onClick={() => toggleFreshProduct(selectedGroup)}
+                title={selectedGroup.is_fresh_product ? 'מוצר טרי – לחץ לביטול' : 'סמן כמוצר טרי (בשר/עוף)'}
+                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all"
+                style={{
+                  background: selectedGroup.is_fresh_product ? 'rgba(176,90,0,0.12)' : 'rgba(182,171,156,0.15)',
+                  color: selectedGroup.is_fresh_product ? '#b05a00' : '#8a7f75',
+                  border: selectedGroup.is_fresh_product ? '1.5px solid rgba(176,90,0,0.35)' : '1.5px solid rgba(182,171,156,0.3)',
+                  fontFamily: 'Heebo, sans-serif',
+                }}
+              >
+                🥩 {selectedGroup.is_fresh_product ? 'טרי' : 'טרי?'}
+              </button>
             </div>
             <div className="mb-5">
               <div className="flex gap-2 mb-2">
@@ -372,31 +458,81 @@ function GroupsTab() {
               )}
               {(searching || searchResults.length > 0) && (
                 <div className="mt-2 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(182,171,156,0.4)', background: 'rgba(255,255,255,0.85)' }}>
-                  {searching ? <div className="flex items-center justify-center py-5"><div className="animate-spin w-5 h-5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} /></div>
-                    : searchResults.map((product, idx) => {
-                      const inGroup = groupItems.some(i => i.item_code === product.item_code);
-                      const isAdding = addingItem === product.item_code;
-                      return (
-                        <button key={product.item_code} onClick={() => toggleItemInGroup(product)} disabled={isAdding} className="w-full flex items-center gap-3 px-3 py-2.5 border-b last:border-b-0 text-right transition-colors hover:bg-black/5 disabled:opacity-60" style={{ borderColor: 'rgba(182,171,156,0.2)' }}>
-                          <ProductThumb itemCode={product.item_code} name={product.item_name} />
-                          <div className="flex-1 min-w-0 text-right">
-                            <p className="text-sm font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
-                              {idx === 0 && <span className="text-xs opacity-40 ml-1">[Enter]</span>}{product.item_name}
-                            </p>
-                            <p className="text-xs" style={{ color: '#8a7f75' }}>
-                              {product.item_code}{product.manufacturer_name ? ` · ${product.manufacturer_name}` : ''}
-                              {product.unit_qty ? ` · ${product.unit_qty}${product.unit_of_measure ? ' ' + product.unit_of_measure : ''}` : ''}
-                              {` · ₪${product.min_price?.toFixed(2)} · ${product.chain_count} רשתות`}
-                            </p>
-                          </div>
-                          <div className="shrink-0">
-                            {isAdding ? <div className="animate-spin w-5 h-5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} />
-                              : inGroup ? <CheckCircle2 size={20} style={{ color: '#2d7a2d' }} />
-                              : <Circle size={20} style={{ color: '#B6AB9C' }} />}
-                          </div>
+                  {/* "הוסף הכל" bulk action bar */}
+                  {!searching && selectedCodes.size > 0 && (
+                    <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: 'rgba(182,171,156,0.3)', background: 'rgba(191,44,44,0.06)' }}>
+                      <span className="text-xs font-medium" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
+                        {selectedCodes.size} נבחרו
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setSelectedCodes(new Set())}
+                          className="text-xs px-2 py-1 rounded-lg"
+                          style={{ color: '#8a7f75', background: 'rgba(182,171,156,0.2)' }}
+                        >
+                          בטל
                         </button>
-                      );
-                    })}
+                        <button
+                          onClick={addBulkToGroup}
+                          disabled={addingBulk}
+                          className="text-xs px-3 py-1 rounded-lg font-bold disabled:opacity-50"
+                          style={{ background: '#BF2C2C', color: 'white', fontFamily: 'Heebo, sans-serif' }}
+                        >
+                          {addingBulk ? '...' : `הוסף הכל (${selectedCodes.size})`}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {/* Scrollable results list */}
+                  <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                    {searching ? <div className="flex items-center justify-center py-5"><div className="animate-spin w-5 h-5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} /></div>
+                      : searchResults.map((product, idx) => {
+                        const inGroup = groupItems.some(i => i.item_code === product.item_code);
+                        const isAdding = addingItem === product.item_code;
+                        const isSelected = selectedCodes.has(product.item_code);
+                        return (
+                          <div key={product.item_code} className="flex items-center gap-2 px-3 py-2.5 border-b last:border-b-0 transition-colors hover:bg-black/5" style={{ borderColor: 'rgba(182,171,156,0.2)', background: isSelected ? 'rgba(191,44,44,0.06)' : undefined }}>
+                            {/* Checkbox for multi-select */}
+                            <button
+                              onClick={() => {
+                                setSelectedCodes(prev => {
+                                  const s = new Set(prev);
+                                  if (s.has(product.item_code)) s.delete(product.item_code);
+                                  else s.add(product.item_code);
+                                  return s;
+                                });
+                              }}
+                              className="shrink-0 w-5 h-5 rounded flex items-center justify-center border-2 transition-colors"
+                              style={{
+                                borderColor: isSelected ? '#BF2C2C' : '#B6AB9C',
+                                background: isSelected ? '#BF2C2C' : 'transparent',
+                              }}
+                            >
+                              {isSelected && <span style={{ color: 'white', fontSize: 11, lineHeight: 1 }}>✓</span>}
+                            </button>
+                            {/* Main row — click to toggle in group */}
+                            <button onClick={() => toggleItemInGroup(product)} disabled={isAdding} className="flex-1 flex items-center gap-3 text-right disabled:opacity-60">
+                              <ProductThumb itemCode={product.item_code} name={product.item_name} />
+                              <div className="flex-1 min-w-0 text-right">
+                                <p className="text-sm font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
+                                  {idx === 0 && <span className="text-xs opacity-40 ml-1">[Enter]</span>}{product.item_name}
+                                </p>
+                                <p className="text-xs" style={{ color: '#8a7f75' }}>
+                                  {product.item_code}{product.manufacturer_name ? ` · ${product.manufacturer_name}` : ''}
+                                  {product.unit_qty ? ` · ${product.unit_qty}${product.unit_of_measure ? ' ' + product.unit_of_measure : ''}` : ''}
+                                  {` · ₪${product.min_price?.toFixed(2)} · ${product.chain_count} רשתות`}
+                                </p>
+                              </div>
+                              <div className="shrink-0">
+                                {isAdding ? <div className="animate-spin w-5 h-5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} />
+                                  : inGroup ? <CheckCircle2 size={20} style={{ color: '#2d7a2d' }} />
+                                  : <Circle size={20} style={{ color: '#B6AB9C' }} />}
+                              </div>
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
                 </div>
               )}
             </div>

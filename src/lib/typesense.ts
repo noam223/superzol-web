@@ -277,10 +277,14 @@ export async function searchProductsIndex(query: string, options?: {
     collection: PRODUCTS_INDEX,
     q: query,
     query_by: 'item_name,manufacturer_name,manufacturer_item_id',
+    query_by_weights: '4,2,1',
     page: page.toString(),
     per_page: perPage.toString(),
-    num_typos: '2',
-    sort_by: 'chain_count:desc,min_price:asc',
+    num_typos: '1',
+    min_len_1typo: '4',
+    min_len_2typo: '7',
+    prefix: 'true,false,false',
+    sort_by: '_text_match:desc,chain_count:desc,min_price:asc',
     ...(onlyPromos && { filter_by: 'has_promotion:=true' }),
   });
 
@@ -350,7 +354,23 @@ export type IndexProduct = {
   has_promotion?: boolean;
   promo_price?: number;
   promo_description?: string;
+  /** Unix timestamp (seconds) of the most-recent LastSaleDateTime seen across all chains */
+  last_updated?: number;
 };
+
+/** Format a Unix timestamp as a Hebrew-friendly relative date string */
+export function formatLastUpdated(ts: number | undefined): string | null {
+  if (!ts) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const diffSec = now - ts;
+  const diffDays = Math.floor(diffSec / 86400);
+  if (diffDays === 0) return 'עודכן היום';
+  if (diffDays === 1) return 'עודכן אתמול';
+  if (diffDays < 7) return `עודכן לפני ${diffDays} ימים`;
+  if (diffDays < 30) return `עודכן לפני ${Math.floor(diffDays / 7)} שבועות`;
+  if (diffDays < 365) return `עודכן לפני ${Math.floor(diffDays / 30)} חודשים`;
+  return `עודכן לפני ${Math.floor(diffDays / 365)} שנים`;
+}
 
 // Module-level cache for store IDs per collection (persists across calls in same session)
 const _storeIdCache: Record<string, string[]> = {};

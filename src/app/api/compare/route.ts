@@ -8,6 +8,9 @@ const TYPESENSE_SEARCH_KEY = process.env.NEXT_PUBLIC_TYPESENSE_SEARCH_KEY!;
 const TS_BASE = `${TYPESENSE_PROTOCOL}://${TYPESENSE_HOST}:${TYPESENSE_PORT}`;
 const TS_HEADERS = { 'X-TYPESENSE-API-KEY': TYPESENSE_SEARCH_KEY };
 
+// How many days old a fresh product's price can be before it's excluded
+const FRESH_MAX_AGE_DAYS = 7;
+
 // Direct document fetch by ID
 async function tsGetDoc(collection: string, docId: string) {
   const res = await fetch(
@@ -76,6 +79,7 @@ export type ItemResult = {
   // Group item fields
   group_label?: string;       // Display name of the group (e.g. "שמן קנולה/חמניות")
   resolved_item_code?: string; // Actual barcode that was found (same as item_code when found)
+  is_fresh_product?: boolean;  // True for fresh meat/poultry groups
 };
 
 // Input item type (supports both regular and group items)
@@ -85,11 +89,106 @@ type InputItem = {
   quantity: number;
   candidate_codes?: string[]; // For group items: all barcodes in the group
   group_label?: string;       // For group items: display name of the group
+  is_fresh_product?: boolean; // For fresh groups: use dynamic search instead of fixed codes
 };
 
 /**
+ * Find fresh product candidates from products_index (merged index) that were
+ * updated within FRESH_MAX_AGE_DAYS. Returns item_codes matching the group label.
+ * Falls back to all weighted matches if none are recent enough.
+ */
+async function getFreshCandidateCodes(groupLabel: string): Promise<string[]> {
+  const cutoffTs = Math.floor(Date.now() / 1000) - FRESH_MAX_AGE_DAYS * 86400;
+
+  // Try 1: weighted + recently updated (requires rebuilt index with last_updated + b_is_weighted)
+  try {
+    const data = await tsSearch('products_index', {
+      q: groupLabel,
+      query_by: 'item_name',
+      filter_by: `b_is_weighted:=true && last_updated:>=${cutoffTs}`,
+      sort_by: '_text_match:desc,chain_count:desc',
+      per_page: '20',
+    });
+    if (data?.hits?.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return data.hits.map((h: any) => h.document.item_code as string);
+    }
+  } catch { /* field not in schema yet */ }
+
+  // Try 2: weighted only (no last_updated filter)
+  try {
+    const fallback = await tsSearch('products_index', {
+      q: groupLabel,
+      query_by: 'item_name',
+      filter_by: 'b_is_weighted:=true',
+      sort_by: '_text_match:desc,chain_count:desc',
+      per_page: '20',
+    });
+    if (fallback?.hits?.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return fallback.hits.map((h: any) => h.document.item_code as string);
+    }
+  } catch { /* field not in schema yet */ }
+
+  // Try 3: plain text search, no filter (works with any schema)
+  try {
+    const plain = await tsSearch('products_index', {
+      q: groupLabel,
+      query_by: 'item_name',
+      sort_by: '_text_match:desc,chain_count:desc',
+      per_page: '20',
+    });
+    if (plain?.hits?.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return plain.hits.map((h: any) => h.document.item_code as string);
+    }
+  } catch { /* search failed entirely */ }
+
+  return [];
+}
+
+/**
+ * Search a per-chain store collection for a fresh product by name.
+ * Uses candidate codes from products_index (filtered by last_updated).
+ * Returns the cheapest item found in that specific store, or null.
+ */
+async function findFreshProductInStore(
+  collection: string,
+  chainId: string,
+  storeId: string,
+  candidateCodes: string[],
+  variants: string[],
+): Promise<{ code: string; price: number; name: string } | null> {
+  if (candidateCodes.length === 0) return null;
+
+  // Try all candidate codes in parallel across all store_id variants
+  const results = await Promise.all(
+    candidateCodes.map(async (code) => {
+      // Try resolved sid first
+      let doc = await tsGetDoc(collection, `${chainId}-${storeId}-${code}`);
+      if (!doc || !(doc.item_price > 0)) {
+        for (const sid of variants) {
+          if (sid === storeId) continue;
+          const altDoc = await tsGetDoc(collection, `${chainId}-${sid}-${code}`);
+          if (altDoc && altDoc.item_price > 0) { doc = altDoc; break; }
+        }
+      }
+      if (doc && doc.item_price > 0) {
+        return { code, price: doc.item_price as number, name: doc.item_name as string };
+      }
+      return null;
+    })
+  );
+
+  const valid = results.filter(Boolean) as { code: string; price: number; name: string }[];
+  if (valid.length === 0) return null;
+  valid.sort((a, b) => a.price - b.price);
+  return valid[0];
+}
+
+/**
  * POST /api/compare
- * Body: { lat, lng, radius_km, items: [{item_code, item_name, quantity, candidate_codes?, group_label?}] }
+ * Body: { lat, lng, radius_km, items: [{item_code, item_name, quantity, candidate_codes?, group_label?, is_fresh_product?}] }
  * Returns: stores sorted by products_found DESC, total_price ASC
  */
 export async function POST(request: NextRequest) {
@@ -133,6 +232,21 @@ export async function POST(request: NextRequest) {
 
     const storeResults: StoreResult[] = [];
 
+    // Pre-fetch fresh candidate codes once per fresh item (from products_index, filtered by last_updated)
+    // This avoids repeating the search for every store
+    const freshCandidateMap = new Map<string, string[]>(); // group_label → item_codes
+    await Promise.all(
+      items
+        .filter(i => i.is_fresh_product)
+        .map(async (item) => {
+          const label = item.group_label || item.item_name;
+          if (!freshCandidateMap.has(label)) {
+            const codes = await getFreshCandidateCodes(label);
+            freshCandidateMap.set(label, codes);
+          }
+        })
+    );
+
     // 3. For each chain, for each store, look up all items
     await Promise.all(
       Object.entries(chainStoreMap).map(async ([chainId, stores]) => {
@@ -140,7 +254,7 @@ export async function POST(request: NextRequest) {
         const sidVariants = stores.map(s => ({ store: s, variants: storeIdVariants(s.store_id) }));
 
         // Use only regular items (non-group) for store_id variant resolution
-        const regularItems = items.filter(i => !i.candidate_codes?.length);
+        const regularItems = items.filter(i => !i.candidate_codes?.length && !i.is_fresh_product);
 
         await Promise.all(
           sidVariants.map(async ({ store, variants }) => {
@@ -166,6 +280,48 @@ export async function POST(request: NextRequest) {
 
             await Promise.all(
               items.map(async (item) => {
+                // ── FRESH GROUP ITEM: dynamic search in per-store collection ──
+                if (item.is_fresh_product) {
+                  const label = item.group_label || item.item_name;
+                  const candidateCodes = freshCandidateMap.get(label) ?? [];
+                  const result = await findFreshProductInStore(
+                    collection,
+                    chainId,
+                    resolvedSid,
+                    candidateCodes,
+                    variants,
+                  );
+
+                  if (result) {
+                    const total = result.price * item.quantity;
+                    totalPrice += total;
+                    found++;
+                    itemResults.push({
+                      item_code: result.code,
+                      item_name: result.name,
+                      quantity: item.quantity,
+                      found: true,
+                      price: result.price,
+                      total,
+                      group_label: item.group_label,
+                      resolved_item_code: result.code,
+                      is_fresh_product: true,
+                    });
+                  } else {
+                    itemResults.push({
+                      item_code: 'group',
+                      item_name: item.group_label || item.item_name,
+                      quantity: item.quantity,
+                      found: false,
+                      price: null,
+                      total: null,
+                      group_label: item.group_label,
+                      is_fresh_product: true,
+                    });
+                  }
+                  return;
+                }
+
                 // ── GROUP ITEM: try all candidate codes, pick cheapest ──
                 if (item.candidate_codes && item.candidate_codes.length > 0) {
                   // Try all candidates in parallel

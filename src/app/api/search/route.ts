@@ -34,10 +34,16 @@ export async function GET(request: NextRequest) {
     });
 
     const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
+    // For doc lookups (doc_id), return 404 as empty rather than propagating error status
+    if (!res.ok) {
+      if (docId) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      return NextResponse.json({ hits: [], found: 0 }, { status: 200 });
+    }
+    return NextResponse.json(data, { status: 200 });
   } catch (err) {
     console.error('Typesense proxy error:', err);
-    return NextResponse.json({ error: 'Search failed' }, { status: 500 });
+    if (docId) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ hits: [], found: 0 }, { status: 200 });
   }
 }
 

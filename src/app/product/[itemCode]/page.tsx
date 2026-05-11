@@ -7,7 +7,7 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabase';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
-import { PRODUCTS_INDEX, IndexProduct, CHAIN_NAMES, isValidManufacturerName, formatUnitInfo } from '@/lib/typesense';
+import { PRODUCTS_INDEX, IndexProduct, CHAIN_NAMES, isValidManufacturerName, formatUnitInfo, formatLastUpdated } from '@/lib/typesense';
 import { addToHistory } from '@/lib/history';
 import { getUserLocation, UserLocation } from '@/lib/location';
 
@@ -334,7 +334,12 @@ export default function ProductPage() {
                     {formatUnitInfo(product)}
                   </p>
                 )}
-                <p className="text-xs mb-3" style={{ color: '#B6AB9C' }}>ברקוד: {itemCode}</p>
+                <p className="text-xs mb-1" style={{ color: '#B6AB9C' }}>ברקוד: {itemCode}</p>
+                {formatLastUpdated(product.last_updated) && (
+                  <p className="text-xs mb-3" style={{ color: '#B6AB9C' }}>
+                    🕐 {formatLastUpdated(product.last_updated)}
+                  </p>
+                )}
                 <button onClick={handleAddToList}
                   className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-medium"
                   style={{ background: 'rgba(191, 44, 44, 0.1)', color: '#BF2C2C', fontFamily: 'Heebo, sans-serif' }}>

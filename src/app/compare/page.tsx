@@ -21,6 +21,7 @@ type ListItem = {
   group_id?: string | null;
   group_label?: string;
   candidate_codes?: string[];
+  is_fresh_product?: boolean;
 };
 
 type ItemResult = {
@@ -32,6 +33,7 @@ type ItemResult = {
   total: number | null;
   group_label?: string;
   resolved_item_code?: string;
+  is_fresh_product?: boolean;
 };
 
 type StoreResult = {
@@ -81,13 +83,20 @@ async function fetchProductFromIndex(itemCode: string): Promise<IndexProduct | n
   return null;
 }
 
-async function checkItemInStore(chainId: string, storeId: string, itemCode: string): Promise<boolean> {
-  try {
-    const res = await fetch(`/api/search?collection=products_${chainId}&doc_id=${chainId}-${storeId}-${itemCode}`);
-    if (!res.ok) return false;
-    const doc = await res.json();
-    return doc && !doc.error && (doc.item_price ?? 0) > 0;
-  } catch { return false; }
+async function checkItemInStore(chainId: string, storeId: string, itemCode: string): Promise<number | null> {
+  // Try multiple store_id variants (padded/unpadded)
+  const plain = String(parseInt(storeId, 10));
+  const padded3 = plain.padStart(3, '0');
+  const variants = Array.from(new Set([storeId, padded3, plain]));
+  for (const v of variants) {
+    try {
+      const res = await fetch(`/api/search?collection=products_${chainId}&doc_id=${chainId}-${v}-${itemCode}`);
+      if (!res.ok) continue;
+      const doc = await res.json();
+      if (doc && !doc.error && (doc.item_price ?? 0) > 0) return doc.item_price as number;
+    } catch { /* skip */ }
+  }
+  return null;
 }
 
 async function fetchCandidates(q: string, excludeCode: string): Promise<IndexProduct[]> {
@@ -95,12 +104,14 @@ async function fetchCandidates(q: string, excludeCode: string): Promise<IndexPro
     collection: PRODUCTS_INDEX,
     q,
     query_by: 'item_name,manufacturer_name',
-    query_by_weights: '3,1',
+    query_by_weights: '4,1',
     per_page: '50',
     num_typos: '1',
+    min_len_1typo: '4',
+    min_len_2typo: '7',
     prefix: 'true,false',
     prioritize_exact_prefix_match: 'true',
-    sort_by: 'chain_count:desc,min_price:asc',
+    sort_by: '_text_match:desc,chain_count:desc,min_price:asc',
   });
   const res = await fetch(`/api/search?${params}`);
   if (!res.ok) return [];
@@ -115,7 +126,7 @@ async function searchSubstitutes(
   excludeCode: string,
   chainId: string,
   storeId: string
-): Promise<IndexProduct[]> {
+): Promise<(IndexProduct & { store_price: number })[]> {
   try {
     const words = q.trim().split(/\s+/);
     const firstWord = words[0];
@@ -131,11 +142,11 @@ async function searchSubstitutes(
 
     const checked = await Promise.all(
       merged.map(async (p) => {
-        const inStore = await checkItemInStore(chainId, storeId, p.item_code);
-        return inStore ? p : null;
+        const price = await checkItemInStore(chainId, storeId, p.item_code);
+        return price !== null ? { ...p, store_price: price } : null;
       })
     );
-    return checked.filter(Boolean) as IndexProduct[];
+    return checked.filter(Boolean) as (IndexProduct & { store_price: number })[];
   } catch { return []; }
 }
 
@@ -148,9 +159,9 @@ function SubstituteSheet({
   chainId: string;
   storeId: string;
   onClose: () => void;
-  onReplace: (oldCode: string, newItem: ListItem) => void;
+  onReplace: (oldCode: string, newItem: ListItem, storePrice: number) => Promise<void>;
 }) {
-  const [results, setResults] = useState<IndexProduct[]>([]);
+  const [results, setResults] = useState<(IndexProduct & { store_price: number })[]>([]);
   const [loading, setLoading] = useState(true);
   const displayName = item.group_label || item.item_name;
   const firstWord = displayName.split(' ')[0];
@@ -209,10 +220,10 @@ function SubstituteSheet({
               <ProductImg itemCode={p.item_code} name={p.item_name} size={44} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>{p.item_name}</p>
-                <p className="text-xs mt-0.5" style={{ color: '#8a7f75' }}>₪{p.min_price.toFixed(2)} · {p.chain_count} רשתות</p>
+                <p className="text-xs mt-0.5" style={{ color: '#2d7a2d', fontWeight: 600 }}>₪{p.store_price.toFixed(2)} בחנות זו</p>
               </div>
               <button
-                onClick={() => { onReplace(item.item_code, { item_code: p.item_code, item_name: p.item_name, quantity: item.quantity }); onClose(); }}
+                onClick={async () => { await onReplace(item.item_code, { item_code: p.item_code, item_name: p.item_name, quantity: item.quantity }, p.store_price); onClose(); }}
                 className="text-xs px-3 py-1.5 rounded-xl font-medium shrink-0"
                 style={{ background: '#2d7a2d', color: 'white' }}
               >
@@ -234,7 +245,7 @@ function StoreCard({
   store: StoreResult;
   rank: number;
   totalItems: number;
-  onReplace: (storeKey: string, oldCode: string, newItem: ListItem) => void;
+  onReplace: (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number) => Promise<void>;
 }) {
   const [open, setOpen] = useState(rank === 1);
   const [substituteFor, setSubstituteFor] = useState<ItemResult | null>(null);
@@ -315,8 +326,8 @@ function StoreCard({
                 <div className="flex-1 min-w-0">
                   {/* Group label badge */}
                   {item.group_label && (
-                    <p className="text-xs font-bold mb-0.5" style={{ color: '#BF2C2C' }}>
-                      📦 {item.group_label}
+                    <p className="text-xs font-bold mb-0.5" style={{ color: item.is_fresh_product ? '#b05a00' : '#BF2C2C' }}>
+                      {item.is_fresh_product ? '🥩' : '📦'} {item.group_label}
                     </p>
                   )}
                   <p
@@ -331,9 +342,23 @@ function StoreCard({
                   {item.quantity > 1 && <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>}
                 </div>
                 {item.found ? (
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
-                    {item.quantity > 1 && <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-right">
+                      <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
+                      {item.is_fresh_product
+                        ? <p className="text-xs" style={{ color: '#b05a00' }}>לק&quot;ג</p>
+                        : item.quantity > 1 && <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
+                      }
+                    </div>
+                    <button
+                      onClick={() => setSubstituteFor(item)}
+                      className="flex items-center gap-1 text-xs px-2 py-1 rounded-xl font-medium"
+                      style={{ background: 'rgba(100,100,100,0.08)', color: '#8a7f75', border: '1px solid rgba(182,171,156,0.35)' }}
+                      title="החלף מוצר"
+                    >
+                      <RefreshCw size={11} />
+                      החלף
+                    </button>
                   </div>
                 ) : (
                   <button
@@ -357,7 +382,7 @@ function StoreCard({
           chainId={store.chain_id}
           storeId={store.store_id}
           onClose={() => setSubstituteFor(null)}
-          onReplace={(oldCode, newItem) => { onReplace(store.store_key, oldCode, newItem); setSubstituteFor(null); }}
+          onReplace={async (oldCode, newItem, storePrice) => { await onReplace(store.store_key, oldCode, newItem, storePrice); setSubstituteFor(null); }}
         />
       )}
     </>
@@ -490,19 +515,33 @@ export default function ComparePage() {
           (rawItems as { item_code: string; item_name: string; quantity: number; group_id: string | null }[]).map(async (item) => {
             // ── Group item ──
             if (item.item_code === 'group' && item.group_id) {
-              const { data: groupItems } = await supabase
-                .from('product_group_items')
-                .select('item_code')
-                .eq('group_id', item.group_id);
+              // Fetch group items (always needed) and group metadata (is_fresh_product) in parallel
+              // is_fresh_product fetch is best-effort — defaults to false if column doesn't exist yet
+              const [groupItemsResult, groupMetaResult] = await Promise.all([
+                supabase
+                  .from('product_group_items')
+                  .select('item_code')
+                  .eq('group_id', item.group_id),
+                Promise.resolve(
+                  supabase
+                    .from('product_groups')
+                    .select('is_fresh_product')
+                    .eq('id', item.group_id)
+                    .single()
+                ).catch(() => ({ data: null, error: null })),
+              ]);
 
-              const candidateCodes = (groupItems || []).map((gi: { item_code: string }) => gi.item_code);
+              const candidateCodes = (groupItemsResult.data || []).map((gi: { item_code: string }) => gi.item_code);
+              const isFresh = (groupMetaResult?.data as { is_fresh_product?: boolean } | null)?.is_fresh_product ?? false;
+
               return {
                 item_code: 'group',
                 item_name: item.item_name,
                 quantity: item.quantity,
                 group_id: item.group_id,
                 group_label: item.item_name,
-                candidate_codes: candidateCodes,
+                candidate_codes: isFresh ? [] : candidateCodes,
+                is_fresh_product: isFresh,
               } as ListItem;
             }
 
@@ -567,58 +606,63 @@ export default function ComparePage() {
     saveUserLocation(lat, lng, label);
   };
 
-  const handleReplace = useCallback(async (storeKey: string, oldCode: string, newItem: ListItem) => {
-    // Find the store to get chainId + storeId
-    const store = stores.find(s => s.store_key === storeKey);
-    if (!store) return;
+  const handleReplace = useCallback(async (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number) => {
+    // Apply replacement to ALL stores that are missing oldCode
+    // For the triggering store: use the already-verified storePrice
+    // For other stores: check if the substitute exists there too
+    const currentStores = stores;
+    const updatedStores = await Promise.all(
+      currentStores.map(async (s) => {
+        const missingItem = s.items.find(i => i.item_code === oldCode && !i.found);
+        if (!missingItem) return s; // item not missing in this store — skip
 
-    // Look up the new item's price in this specific store
-    let resolvedPrice: number | null = null;
-    try {
-      const res = await fetch(`/api/search?collection=products_${store.chain_id}&doc_id=${store.chain_id}-${store.store_id}-${newItem.item_code}`);
-      if (res.ok) {
-        const doc = await res.json();
-        if (doc && !doc.error && doc.item_price > 0) {
-          resolvedPrice = doc.item_price as number;
+        const quantity = missingItem.quantity;
+        let price: number | null = null;
+
+        if (s.store_key === storeKey) {
+          // Triggering store — price already verified
+          price = storePrice;
+        } else {
+          // Other stores — check if substitute exists there
+          price = await checkItemInStore(s.chain_id, s.store_id, newItem.item_code);
         }
-      }
-    } catch { /* skip */ }
 
-    setStores(prev => prev.map(s => {
-      if (s.store_key !== storeKey) return s;
-      const quantity = s.items.find(i => i.item_code === oldCode)?.quantity ?? 1;
-      const updatedItems = s.items.map(item => {
-        if (item.item_code !== oldCode) return item;
-        if (resolvedPrice !== null) {
+        const updatedItems = s.items.map(item => {
+          if (item.item_code !== oldCode) return item;
+          if (price !== null) {
+            return {
+              ...item,
+              item_code: newItem.item_code,
+              item_name: newItem.item_name,
+              found: true,
+              price,
+              total: price * quantity,
+            };
+          }
+          // Substitute not found in this store — update name but keep as missing
           return {
+            ...item,
             item_code: newItem.item_code,
             item_name: newItem.item_name,
-            quantity,
-            found: true,
-            price: resolvedPrice,
-            total: resolvedPrice * quantity,
+            found: false,
+            price: null,
+            total: null,
           };
-        }
-        // Price not found in this store — show as missing
+        });
+
+        const foundCount = updatedItems.filter(i => i.found).length;
+        const total = updatedItems.reduce((sum, i) => sum + (i.total || 0), 0);
         return {
-          item_code: newItem.item_code,
-          item_name: newItem.item_name,
-          quantity,
-          found: false,
-          price: null,
-          total: null,
+          ...s,
+          items: updatedItems,
+          products_found: foundCount,
+          products_missing: updatedItems.length - foundCount,
+          total_price: total,
         };
-      });
-      const foundCount = updatedItems.filter(i => i.found).length;
-      const total = updatedItems.reduce((sum, i) => sum + (i.total || 0), 0);
-      return {
-        ...s,
-        items: updatedItems,
-        products_found: foundCount,
-        products_missing: updatedItems.length - foundCount,
-        total_price: total,
-      };
-    }));
+      })
+    );
+
+    setStores(updatedStores);
   }, [stores]);
 
   // ── Loading ──

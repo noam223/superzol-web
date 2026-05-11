@@ -120,6 +120,7 @@ export type ItemResult = {
   group_label?: string;       // Display name of the group (e.g. "שמן קנולה/חמניות")
   resolved_item_code?: string; // Actual barcode that was found (same as item_code when found)
   is_fresh_product?: boolean;  // True for fresh meat/poultry groups
+  image_item_code?: string | null; // Item code to use for group image display
 };
 
 // Input item type (supports both regular and group items)
@@ -130,6 +131,7 @@ type InputItem = {
   candidate_codes?: string[]; // For group items: all barcodes in the group
   group_label?: string;       // For group items: display name of the group
   is_fresh_product?: boolean; // For fresh groups: use dynamic search instead of fixed codes
+  image_item_code?: string | null; // For group items: item code to use for image display
 };
 
 /**
@@ -322,6 +324,7 @@ export async function POST(request: NextRequest) {
                     total: null,
                     group_label: item.group_label,
                     is_fresh_product: item.is_fresh_product,
+                    image_item_code: item.image_item_code,
                   });
                 }
               }
@@ -380,6 +383,7 @@ export async function POST(request: NextRequest) {
                   group_label: item.group_label,
                   resolved_item_code: bestCode,
                   is_fresh_product: item.is_fresh_product,
+                  image_item_code: item.image_item_code,
                 });
               } else {
                 sr.products_missing++;
@@ -392,6 +396,7 @@ export async function POST(request: NextRequest) {
                   total: null,
                   group_label: item.group_label,
                   is_fresh_product: item.is_fresh_product,
+                  image_item_code: item.image_item_code,
                 });
               }
             }

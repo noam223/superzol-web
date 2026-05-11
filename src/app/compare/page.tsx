@@ -22,6 +22,7 @@ type ListItem = {
   group_label?: string;
   candidate_codes?: string[];
   is_fresh_product?: boolean;
+  image_item_code?: string | null;
 };
 
 type ItemResult = {
@@ -34,6 +35,7 @@ type ItemResult = {
   group_label?: string;
   resolved_item_code?: string;
   is_fresh_product?: boolean;
+  image_item_code?: string | null;
 };
 
 type StoreResult = {
@@ -317,9 +319,9 @@ function StoreCard({
                   border: item.found ? '1px solid rgba(182,171,156,0.25)' : '1px solid rgba(191,44,44,0.2)',
                 }}
               >
-                {/* Image: use resolved item_code for group items */}
+                {/* Image: use resolved item_code when found, group image_item_code when not found */}
                 <ProductImg
-                  itemCode={item.found ? item.item_code : ''}
+                  itemCode={item.found ? item.item_code : (item.image_item_code || '')}
                   name={item.group_label || item.item_name}
                   size={36}
                 />
@@ -525,14 +527,16 @@ export default function ComparePage() {
                 Promise.resolve(
                   supabase
                     .from('product_groups')
-                    .select('is_fresh_product')
+                    .select('is_fresh_product, image_item_code')
                     .eq('id', item.group_id)
                     .single()
                 ).catch(() => ({ data: null, error: null })),
               ]);
 
               const candidateCodes = (groupItemsResult.data || []).map((gi: { item_code: string }) => gi.item_code);
-              const isFresh = (groupMetaResult?.data as { is_fresh_product?: boolean } | null)?.is_fresh_product ?? false;
+              const groupMeta = groupMetaResult?.data as { is_fresh_product?: boolean; image_item_code?: string | null } | null;
+              const isFresh = groupMeta?.is_fresh_product ?? false;
+              const imageItemCode = groupMeta?.image_item_code ?? null;
 
               return {
                 item_code: 'group',
@@ -542,6 +546,7 @@ export default function ComparePage() {
                 group_label: item.item_name,
                 candidate_codes: isFresh ? [] : candidateCodes,
                 is_fresh_product: isFresh,
+                image_item_code: imageItemCode,
               } as ListItem;
             }
 

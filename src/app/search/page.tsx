@@ -270,16 +270,7 @@ export default function SearchPage() {
               >
                 <X size={16} />
               </button>
-            ) : (
-              <button
-                onClick={() => setShowScanner(true)}
-                className="absolute left-3 top-1/2 -translate-y-1/2 p-0.5 rounded-lg transition-opacity hover:opacity-70"
-                style={{ color: '#BF2C2C' }}
-                title="סרוק ברקוד"
-              >
-                <ScanBarcode size={18} />
-              </button>
-            )}
+            ) : null}
           </div>
           {/* Loading spinner */}
           {loading && (
@@ -459,6 +450,23 @@ export default function SearchPage() {
           </div>
         )}
       </div>
+
+      {/* Floating barcode scanner button (bottom-left, fixed) */}
+      {!showScanner && (
+        <button
+          onClick={() => setShowScanner(true)}
+          className="fixed bottom-24 left-4 flex items-center justify-center rounded-full shadow-lg transition-transform active:scale-90 z-50"
+          style={{
+            width: 52,
+            height: 52,
+            background: '#2d7a2d',
+            color: '#fff',
+          }}
+          title="סרוק ברקוד"
+        >
+          <ScanBarcode size={24} />
+        </button>
+      )}
     </div>
   );
 }

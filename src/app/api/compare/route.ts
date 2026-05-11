@@ -11,18 +11,6 @@ const TS_HEADERS = { 'X-TYPESENSE-API-KEY': TYPESENSE_SEARCH_KEY };
 // How many days old a fresh product's price can be before it's excluded
 const FRESH_MAX_AGE_DAYS = 7;
 
-// Direct document fetch by ID
-async function tsGetDoc(collection: string, docId: string) {
-  const res = await fetch(
-    `${TS_BASE}/collections/${collection}/documents/${encodeURIComponent(docId)}`,
-    { headers: TS_HEADERS, cache: 'no-store' }
-  );
-  if (!res.ok) return null;
-  const doc = await res.json();
-  if (doc?.error) return null;
-  return doc;
-}
-
 async function tsSearch(collection: string, params: Record<string, string>) {
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${TS_BASE}/collections/${collection}/documents/search?${qs}`, {
@@ -31,6 +19,37 @@ async function tsSearch(collection: string, params: Record<string, string>) {
   });
   if (!res.ok) return null;
   return res.json();
+}
+
+/**
+ * Batch fetch prices for multiple doc IDs in one Typesense search.
+ * Returns a map of docId → { item_price, item_name }
+ */
+async function tsBatchGetDocs(
+  collection: string,
+  docIds: string[]
+): Promise<Map<string, { item_price: number; item_name: string }>> {
+  if (docIds.length === 0) return new Map();
+
+  // Typesense filter_by: id:[id1,id2,...] — fetches exact docs by ID
+  const filterBy = `id:[${docIds.map(id => `\`${id}\``).join(',')}]`;
+  const data = await tsSearch(collection, {
+    q: '*',
+    query_by: 'item_name',
+    filter_by: filterBy,
+    per_page: String(Math.min(docIds.length, 250)),
+  });
+
+  const result = new Map<string, { item_price: number; item_name: string }>();
+  if (!data?.hits) return result;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const hit of data.hits as any[]) {
+    const doc = hit.document;
+    if (doc?.id && doc.item_price > 0) {
+      result.set(doc.id, { item_price: doc.item_price, item_name: doc.item_name });
+    }
+  }
+  return result;
 }
 
 // Haversine distance in km
@@ -148,48 +167,12 @@ async function getFreshCandidateCodes(groupLabel: string): Promise<string[]> {
 }
 
 /**
- * Search a per-chain store collection for a fresh product by name.
- * Uses candidate codes from products_index (filtered by last_updated).
- * Returns the cheapest item found in that specific store, or null.
- */
-async function findFreshProductInStore(
-  collection: string,
-  chainId: string,
-  storeId: string,
-  candidateCodes: string[],
-  variants: string[],
-): Promise<{ code: string; price: number; name: string } | null> {
-  if (candidateCodes.length === 0) return null;
-
-  // Try all candidate codes in parallel across all store_id variants
-  const results = await Promise.all(
-    candidateCodes.map(async (code) => {
-      // Try resolved sid first
-      let doc = await tsGetDoc(collection, `${chainId}-${storeId}-${code}`);
-      if (!doc || !(doc.item_price > 0)) {
-        for (const sid of variants) {
-          if (sid === storeId) continue;
-          const altDoc = await tsGetDoc(collection, `${chainId}-${sid}-${code}`);
-          if (altDoc && altDoc.item_price > 0) { doc = altDoc; break; }
-        }
-      }
-      if (doc && doc.item_price > 0) {
-        return { code, price: doc.item_price as number, name: doc.item_name as string };
-      }
-      return null;
-    })
-  );
-
-  const valid = results.filter(Boolean) as { code: string; price: number; name: string }[];
-  if (valid.length === 0) return null;
-  valid.sort((a, b) => a.price - b.price);
-  return valid[0];
-}
-
-/**
  * POST /api/compare
  * Body: { lat, lng, radius_km, items: [{item_code, item_name, quantity, candidate_codes?, group_label?, is_fresh_product?}] }
  * Returns: stores sorted by products_found DESC, total_price ASC
+ *
+ * PERFORMANCE: Uses batch Typesense queries (one per item per chain) instead of
+ * individual doc fetches, reducing N*M requests to N+M requests.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -230,10 +213,7 @@ export async function POST(request: NextRequest) {
       chainStoreMap[store.chain_id].push(store);
     }
 
-    const storeResults: StoreResult[] = [];
-
-    // Pre-fetch fresh candidate codes once per fresh item (from products_index, filtered by last_updated)
-    // This avoids repeating the search for every store
+    // Pre-fetch fresh candidate codes once per fresh item (from products_index)
     const freshCandidateMap = new Map<string, string[]>(); // group_label → item_codes
     await Promise.all(
       items
@@ -247,208 +227,165 @@ export async function POST(request: NextRequest) {
         })
     );
 
-    // 3. For each chain, for each store, look up all items
+    // 3. For each chain, batch-fetch all prices in as few Typesense calls as possible
+    //    Strategy: for each item, build all possible doc IDs for all stores in this chain,
+    //    then fetch them all in one query. This reduces requests from O(stores*items) to O(items*chains).
+
+    // storeResults accumulates results per store
+    // Use a map: storeKey → StoreResult
+    const storeResultMap = new Map<string, StoreResult>();
+
+    // Initialize store entries
+    for (const store of nearbyStores) {
+      const variants = storeIdVariants(store.store_id);
+      const storeKey = `${store.chain_id}-${variants[0]}`;
+      if (!storeResultMap.has(storeKey)) {
+        storeResultMap.set(storeKey, {
+          store_key: storeKey,
+          chain_id: store.chain_id,
+          chain_name: store.chain_name,
+          store_id: variants[0],
+          store_name: store.store_name,
+          lat: store.lat,
+          lng: store.lng,
+          distance_km: haversine(lat, lng, store.lat, store.lng),
+          products_found: 0,
+          products_missing: 0,
+          total_price: 0,
+          items: [],
+        });
+      }
+    }
+
     await Promise.all(
       Object.entries(chainStoreMap).map(async ([chainId, stores]) => {
         const collection = `products_${chainId}`;
-        const sidVariants = stores.map(s => ({ store: s, variants: storeIdVariants(s.store_id) }));
 
-        // Use only regular items (non-group) for store_id variant resolution
-        const regularItems = items.filter(i => !i.candidate_codes?.length && !i.is_fresh_product);
+        // Build a map: storeId → store info (using all variants)
+        // We'll track which variant key maps to which store
+        const storeVariantMap = new Map<string, typeof stores[0]>(); // variantKey → store
+        for (const store of stores) {
+          for (const sid of storeIdVariants(store.store_id)) {
+            storeVariantMap.set(sid, store);
+          }
+        }
+        const allSids = Array.from(storeVariantMap.keys());
 
+        // For each item, batch-fetch prices across all stores in this chain
         await Promise.all(
-          sidVariants.map(async ({ store, variants }) => {
-            // Resolve which store_id variant has data by checking multiple items
-            let resolvedSid = variants[0];
-            if (variants.length > 1 && regularItems.length > 0) {
-              const testItems = regularItems.slice(0, 3);
-              outer: for (const sid of variants) {
-                for (const testItem of testItems) {
-                  const testDoc = await tsGetDoc(collection, `${chainId}-${sid}-${testItem.item_code}`);
-                  if (testDoc !== null) {
-                    resolvedSid = sid;
-                    break outer;
-                  }
-                }
-              }
+          items.map(async (item) => {
+            // Determine which item codes to look up
+            let codesToCheck: string[];
+            if (item.is_fresh_product) {
+              const label = item.group_label || item.item_name;
+              codesToCheck = freshCandidateMap.get(label) ?? [];
+            } else if (item.candidate_codes?.length) {
+              codesToCheck = item.candidate_codes;
+            } else {
+              codesToCheck = [item.item_code];
             }
 
-            // Now look up all items in parallel using the resolved store_id
-            const itemResults: ItemResult[] = [];
-            let totalPrice = 0;
-            let found = 0;
-
-            await Promise.all(
-              items.map(async (item) => {
-                // ── FRESH GROUP ITEM: dynamic search in per-store collection ──
-                if (item.is_fresh_product) {
-                  const label = item.group_label || item.item_name;
-                  const candidateCodes = freshCandidateMap.get(label) ?? [];
-                  const result = await findFreshProductInStore(
-                    collection,
-                    chainId,
-                    resolvedSid,
-                    candidateCodes,
-                    variants,
-                  );
-
-                  if (result) {
-                    const total = result.price * item.quantity;
-                    totalPrice += total;
-                    found++;
-                    itemResults.push({
-                      item_code: result.code,
-                      item_name: result.name,
-                      quantity: item.quantity,
-                      found: true,
-                      price: result.price,
-                      total,
-                      group_label: item.group_label,
-                      resolved_item_code: result.code,
-                      is_fresh_product: true,
-                    });
-                  } else {
-                    itemResults.push({
-                      item_code: 'group',
-                      item_name: item.group_label || item.item_name,
-                      quantity: item.quantity,
-                      found: false,
-                      price: null,
-                      total: null,
-                      group_label: item.group_label,
-                      is_fresh_product: true,
-                    });
-                  }
-                  return;
-                }
-
-                // ── GROUP ITEM: try all candidate codes, pick cheapest ──
-                if (item.candidate_codes && item.candidate_codes.length > 0) {
-                  // Try all candidates in parallel
-                  const candidateResults = await Promise.all(
-                    item.candidate_codes.map(async (code) => {
-                      // Try resolved sid first
-                      let doc = await tsGetDoc(collection, `${chainId}-${resolvedSid}-${code}`);
-                      // Fallback to other variants
-                      if (!doc || !(doc.item_price > 0)) {
-                        for (const sid of variants) {
-                          if (sid === resolvedSid) continue;
-                          const altDoc = await tsGetDoc(collection, `${chainId}-${sid}-${code}`);
-                          if (altDoc && altDoc.item_price > 0) {
-                            doc = altDoc;
-                            break;
-                          }
-                        }
-                      }
-                      if (doc && doc.item_price > 0) {
-                        return { code, doc, price: doc.item_price as number };
-                      }
-                      return null;
-                    })
-                  );
-
-                  // Filter to found candidates and pick cheapest
-                  const validCandidates = candidateResults.filter(Boolean) as { code: string; doc: Record<string, unknown>; price: number }[];
-
-                  if (validCandidates.length > 0) {
-                    // Sort by price ascending, pick cheapest
-                    validCandidates.sort((a, b) => a.price - b.price);
-                    const cheapest = validCandidates[0];
-                    const total = cheapest.price * item.quantity;
-                    totalPrice += total;
-                    found++;
-                    itemResults.push({
-                      item_code: cheapest.code,
-                      item_name: (cheapest.doc.item_name as string) || item.group_label || item.item_name,
-                      quantity: item.quantity,
-                      found: true,
-                      price: cheapest.price,
-                      total,
-                      group_label: item.group_label,
-                      resolved_item_code: cheapest.code,
-                    });
-                  } else {
-                    // No candidate found in this store
-                    itemResults.push({
-                      item_code: 'group',
-                      item_name: item.group_label || item.item_name,
-                      quantity: item.quantity,
-                      found: false,
-                      price: null,
-                      total: null,
-                      group_label: item.group_label,
-                    });
-                  }
-                  return;
-                }
-
-                // ── REGULAR ITEM: direct doc lookup ──
-                let doc = await tsGetDoc(collection, `${chainId}-${resolvedSid}-${item.item_code}`);
-
-                // If not found with resolved sid, try other variants
-                if (!doc || !(doc.item_price > 0)) {
-                  for (const sid of variants) {
-                    if (sid === resolvedSid) continue;
-                    const altDoc = await tsGetDoc(collection, `${chainId}-${sid}-${item.item_code}`);
-                    if (altDoc && altDoc.item_price > 0) {
-                      doc = altDoc;
-                      break;
-                    }
-                  }
-                }
-
-                if (doc && doc.item_price > 0) {
-                  const price = doc.item_price as number;
-                  const total = price * item.quantity;
-                  totalPrice += total;
-                  found++;
-                  itemResults.push({
+            if (codesToCheck.length === 0) {
+              // Mark all stores as missing this item
+              for (const store of stores) {
+                const storeKey = `${chainId}-${storeIdVariants(store.store_id)[0]}`;
+                const sr = storeResultMap.get(storeKey);
+                if (sr) {
+                  sr.products_missing++;
+                  sr.items.push({
                     item_code: item.item_code,
-                    item_name: (doc.item_name as string) || item.item_name,
-                    quantity: item.quantity,
-                    found: true,
-                    price,
-                    total,
-                  });
-                } else {
-                  itemResults.push({
-                    item_code: item.item_code,
-                    item_name: item.item_name,
+                    item_name: item.group_label || item.item_name,
                     quantity: item.quantity,
                     found: false,
                     price: null,
                     total: null,
+                    group_label: item.group_label,
+                    is_fresh_product: item.is_fresh_product,
                   });
                 }
-              })
-            );
+              }
+              return;
+            }
 
-            if (found > 0) {
-              storeResults.push({
-                store_key: `${chainId}-${resolvedSid}`,
-                chain_id: chainId,
-                chain_name: store.chain_name,
-                store_id: resolvedSid,
-                store_name: store.store_name,
-                lat: store.lat,
-                lng: store.lng,
-                distance_km: haversine(lat, lng, store.lat, store.lng),
-                products_found: found,
-                products_missing: items.length - found,
-                total_price: totalPrice,
-                items: itemResults,
-              });
+            // Build all doc IDs: chainId-storeId-itemCode for all sids × all codes
+            const docIds: string[] = [];
+            for (const sid of allSids) {
+              for (const code of codesToCheck) {
+                docIds.push(`${chainId}-${sid}-${code}`);
+              }
+            }
+
+            // Batch fetch all at once (one Typesense query per item per chain)
+            const priceMap = await tsBatchGetDocs(collection, docIds);
+
+            // For each store, find the best (cheapest) price among all codes and variants
+            for (const store of stores) {
+              const variants = storeIdVariants(store.store_id);
+              const primaryVariant = variants[0];
+              const storeKey = `${chainId}-${primaryVariant}`;
+              const sr = storeResultMap.get(storeKey);
+              if (!sr) continue;
+
+              // Find cheapest match across all codes and all sid variants
+              let bestPrice: number | null = null;
+              let bestCode: string | null = null;
+              let bestName: string | null = null;
+
+              for (const sid of variants) {
+                for (const code of codesToCheck) {
+                  const docId = `${chainId}-${sid}-${code}`;
+                  const doc = priceMap.get(docId);
+                  if (doc && doc.item_price > 0) {
+                    if (bestPrice === null || doc.item_price < bestPrice) {
+                      bestPrice = doc.item_price;
+                      bestCode = code;
+                      bestName = doc.item_name;
+                    }
+                  }
+                }
+              }
+
+              if (bestPrice !== null && bestCode !== null) {
+                const total = bestPrice * item.quantity;
+                sr.total_price += total;
+                sr.products_found++;
+                sr.items.push({
+                  item_code: bestCode,
+                  item_name: bestName || item.group_label || item.item_name,
+                  quantity: item.quantity,
+                  found: true,
+                  price: bestPrice,
+                  total,
+                  group_label: item.group_label,
+                  resolved_item_code: bestCode,
+                  is_fresh_product: item.is_fresh_product,
+                });
+              } else {
+                sr.products_missing++;
+                sr.items.push({
+                  item_code: item.is_fresh_product ? 'group' : (item.candidate_codes?.length ? 'group' : item.item_code),
+                  item_name: item.group_label || item.item_name,
+                  quantity: item.quantity,
+                  found: false,
+                  price: null,
+                  total: null,
+                  group_label: item.group_label,
+                  is_fresh_product: item.is_fresh_product,
+                });
+              }
             }
           })
         );
       })
     );
 
-    // 4. Sort: products_found DESC, then total_price ASC
-    storeResults.sort((a, b) => {
-      if (b.products_found !== a.products_found) return b.products_found - a.products_found;
-      return a.total_price - b.total_price;
-    });
+    // 4. Filter stores that found at least one item, sort: products_found DESC, total_price ASC
+    const storeResults = Array.from(storeResultMap.values())
+      .filter(s => s.products_found > 0)
+      .sort((a, b) => {
+        if (b.products_found !== a.products_found) return b.products_found - a.products_found;
+        return a.total_price - b.total_price;
+      });
 
     return NextResponse.json({ stores: storeResults });
   } catch (err) {

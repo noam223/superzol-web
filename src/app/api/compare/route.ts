@@ -22,31 +22,52 @@ async function tsSearch(collection: string, params: Record<string, string>) {
 }
 
 /**
- * Batch fetch prices for multiple doc IDs in one Typesense search.
+ * Batch fetch prices for multiple doc IDs using Typesense /multi_search (POST).
+ * Splits into chunks of CHUNK_SIZE to stay well under any payload limits.
  * Returns a map of docId → { item_price, item_name }
  */
+const BATCH_CHUNK_SIZE = 50; // IDs per sub-query; keeps filter_by well under 4000 chars
+
 async function tsBatchGetDocs(
   collection: string,
   docIds: string[]
 ): Promise<Map<string, { item_price: number; item_name: string }>> {
   if (docIds.length === 0) return new Map();
 
-  // Typesense filter_by: id:[id1,id2,...] — fetches exact docs by ID
-  const filterBy = `id:[${docIds.map(id => `\`${id}\``).join(',')}]`;
-  const data = await tsSearch(collection, {
+  // Split into chunks
+  const chunks: string[][] = [];
+  for (let i = 0; i < docIds.length; i += BATCH_CHUNK_SIZE) {
+    chunks.push(docIds.slice(i, i + BATCH_CHUNK_SIZE));
+  }
+
+  // Build multi_search payload — one search per chunk
+  const searches = chunks.map(chunk => ({
+    collection,
     q: '*',
     query_by: 'item_name',
-    filter_by: filterBy,
-    per_page: String(Math.min(docIds.length, 250)),
+    filter_by: `id:[${chunk.map(id => `\`${id}\``).join(',')}]`,
+    per_page: chunk.length,
+  }));
+
+  const res = await fetch(`${TS_BASE}/multi_search`, {
+    method: 'POST',
+    headers: { ...TS_HEADERS, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ searches }),
+    cache: 'no-store',
   });
 
   const result = new Map<string, { item_price: number; item_name: string }>();
-  if (!data?.hits) return result;
+  if (!res.ok) return result;
+
+  const data = await res.json();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const hit of data.hits as any[]) {
-    const doc = hit.document;
-    if (doc?.id && doc.item_price > 0) {
-      result.set(doc.id, { item_price: doc.item_price, item_name: doc.item_name });
+  for (const searchResult of (data.results ?? []) as any[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const hit of (searchResult.hits ?? []) as any[]) {
+      const doc = hit.document;
+      if (doc?.id && doc.item_price > 0) {
+        result.set(doc.id, { item_price: doc.item_price, item_name: doc.item_name });
+      }
     }
   }
   return result;

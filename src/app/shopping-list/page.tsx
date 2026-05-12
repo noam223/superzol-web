@@ -277,7 +277,7 @@ function SwipeRow({
               className="flex flex-col items-center"
               style={{
                 background: 'rgba(182,171,156,0.2)',
-                borderRadius: 999,
+                borderRadius: 10,
                 border: '1px solid rgba(182,171,156,0.4)',
                 width: 30,
                 overflow: 'hidden',
@@ -286,20 +286,20 @@ function SwipeRow({
               <button
                 onClick={() => onUpdateQty(item.quantity + 1)}
                 className="flex items-center justify-center font-bold"
-                style={{ width: 30, height: 30, color: '#6b6259', fontSize: 17 }}
+                style={{ width: 30, height: 24, color: '#6b6259', fontSize: 15 }}
               >
                 +
               </button>
               <span
-                className="text-sm font-bold text-center"
-                style={{ width: 30, lineHeight: '22px', color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}
+                className="text-xs font-bold text-center"
+                style={{ width: 30, lineHeight: '18px', color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}
               >
                 {item.quantity}
               </span>
               <button
                 onClick={() => onUpdateQty(item.quantity - 1)}
                 className="flex items-center justify-center font-bold"
-                style={{ width: 30, height: 30, color: '#6b6259', fontSize: 17 }}
+                style={{ width: 30, height: 24, color: '#6b6259', fontSize: 15 }}
               >
                 −
               </button>

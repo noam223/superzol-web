@@ -266,47 +266,45 @@ function StoreCard({
   return (
     <>
       <div
-        className={`rounded-3xl overflow-hidden${isTop ? ' animate-gold-shimmer' : ''}`}
+        className={`rounded-3xl overflow-hidden relative${isTop ? ' animate-gold-shimmer' : ''}`}
         style={{
           background: isTop ? 'rgba(245,200,66,0.07)' : 'rgba(233,216,197,0.85)',
           border: isTop ? `2px solid ${medal.border}` : '1.5px solid rgba(182,171,156,0.5)',
         }}
       >
-        {/* Header */}
-        <button className="w-full flex items-center gap-3 p-4 text-right" onClick={() => setOpen(o => !o)}>
+        {/* Chain logo as full-card background at 30% opacity */}
+        {getChainLogoUrl(store.chain_name) && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={getChainLogoUrl(store.chain_name)!}
+            alt=""
+            aria-hidden="true"
+            style={{
+              position: 'absolute', inset: 0,
+              width: '100%', height: '100%',
+              objectFit: 'cover',
+              opacity: 0.08,
+              pointerEvents: 'none',
+              userSelect: 'none',
+            }}
+          />
+        )}
 
-          {/* Left column: rank badge + logo stacked */}
-          <div className="shrink-0 flex flex-col items-center gap-1.5">
-            {/* Rank medal badge */}
-            <div
-              className="flex items-center justify-center font-bold"
-              style={{
-                width: 34, height: 34, borderRadius: '50%',
-                background: medal.bg,
-                color: medal.text,
-                boxShadow: rank <= 3 ? `0 2px 6px ${medal.border}` : 'none',
-                fontSize: 15,
-              }}
-            >
-              {rank}
-            </div>
-            {/* Chain logo below rank */}
-            {getChainLogoUrl(store.chain_name) ? (
-              <div style={{
-                width: 44, height: 28, borderRadius: 7,
-                overflow: 'hidden', background: '#fff',
-                border: '1px solid rgba(182,171,156,0.25)',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-              }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              </div>
-            ) : (
-              <span className="text-xs px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(182,171,156,0.3)', color: '#8a7f75', fontSize: 9 }}>
-                {store.chain_name}
-              </span>
-            )}
+        {/* Header */}
+        <button className="w-full flex items-center gap-3 p-4 text-right relative" onClick={() => setOpen(o => !o)}>
+
+          {/* Rank medal badge only */}
+          <div
+            className="shrink-0 flex items-center justify-center font-bold"
+            style={{
+              width: 34, height: 34, borderRadius: '50%',
+              background: medal.bg,
+              color: medal.text,
+              boxShadow: rank <= 3 ? `0 2px 6px ${medal.border}` : 'none',
+              fontSize: 15,
+            }}
+          >
+            {rank}
           </div>
 
           {/* Store info */}

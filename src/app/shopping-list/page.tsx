@@ -2,10 +2,43 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Square } from 'lucide-react';
+import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Square, X, MapPin } from 'lucide-react';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+
+const PRODUCTS_INDEX = 'products_index';
+
+type NearbyStore = {
+  store_key: string;
+  chain_name: string;
+  store_name: string;
+  distance_km: number;
+  total_price: number;
+};
+
+async function fetchProductIndex(itemCode: string): Promise<{ min_price?: number; max_price?: number } | null> {
+  if (!itemCode || itemCode === 'group') return null;
+  try {
+    const params = new URLSearchParams({ collection: PRODUCTS_INDEX, doc_id: itemCode });
+    const res = await fetch(`/api/search?${params}`);
+    if (res.ok) return await res.json();
+  } catch { /* skip */ }
+  return null;
+}
+
+async function fetchNearbyPrices(itemCode: string, itemName: string, lat: number, lng: number): Promise<NearbyStore[]> {
+  try {
+    const res = await fetch('/api/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lng, radius_km: 15, items: [{ item_code: itemCode, item_name: itemName, quantity: 1 }] }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.stores || []).filter((s: NearbyStore) => s.total_price > 0);
+  } catch { return []; }
+}
 
 type ListItem = {
   id: string;
@@ -109,6 +142,188 @@ function RowImage({ itemCode, name, groupId }: { itemCode: string; name: string;
   );
 }
 
+// ── Price range badge ─────────────────────────────────────────────────────────
+function PriceRange({ itemCode }: { itemCode: string }) {
+  const [range, setRange] = useState<{ min: number; max?: number } | null>(null);
+
+  useEffect(() => {
+    if (!itemCode || itemCode === 'group') return;
+    fetchProductIndex(itemCode).then(p => {
+      if (p?.min_price) setRange({ min: p.min_price, max: p.max_price });
+    });
+  }, [itemCode]);
+
+  if (!range) return null;
+  const fmt = (n: number) => `₪${n.toFixed(2)}`;
+  return (
+    <span className="text-xs font-medium" style={{ color: '#2d7a2d' }}>
+      {range.max && range.max > range.min + 0.01
+        ? `${fmt(range.min)} – ${fmt(range.max)}`
+        : fmt(range.min)}
+    </span>
+  );
+}
+
+// ── Product bottom sheet ──────────────────────────────────────────────────────
+function ProductSheet({ item, onClose }: { item: ListItem; onClose: () => void }) {
+  const [stores, setStores] = useState<NearbyStore[]>([]);
+  const [loadingStores, setLoadingStores] = useState(false);
+  const [range, setRange] = useState<{ min: number; max?: number } | null>(null);
+  const isGroup = item.item_code === 'group';
+
+  useEffect(() => {
+    if (!isGroup) {
+      fetchProductIndex(item.item_code).then(p => {
+        if (p?.min_price) setRange({ min: p.min_price, max: p.max_price });
+      });
+    }
+  }, [item.item_code, isGroup]);
+
+  useEffect(() => {
+    if (isGroup) return;
+    setLoadingStores(true);
+    navigator.geolocation?.getCurrentPosition(
+      pos => {
+        fetchNearbyPrices(item.item_code, item.item_name, pos.coords.latitude, pos.coords.longitude)
+          .then(s => { setStores(s); setLoadingStores(false); });
+      },
+      () => setLoadingStores(false),
+      { timeout: 8000 }
+    );
+  }, [item.item_code, item.item_name, isGroup]);
+
+  const fmt = (n: number) => `₪${n.toFixed(2)}`;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40"
+        style={{ background: 'rgba(0,0,0,0.45)' }}
+        onClick={onClose}
+      />
+      {/* Sheet */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 flex flex-col"
+        style={{
+          background: '#EDE4DA',
+          borderRadius: '24px 24px 0 0',
+          boxShadow: '0 -4px 32px rgba(0,0,0,0.18)',
+          maxHeight: '85vh',
+        }}
+        dir="rtl"
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
+          <div className="w-10 h-1 rounded-full" style={{ background: 'rgba(79,72,63,0.25)' }} />
+        </div>
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 left-4 flex items-center justify-center"
+          style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(79,72,63,0.1)', color: '#4F483F' }}
+        >
+          <X size={16} />
+        </button>
+
+        {/* Scrollable content */}
+        <div className="overflow-y-auto flex-1 px-5 pb-8">
+          {/* Product image */}
+          <div className="flex justify-center my-4">
+            <div style={{ width: 120, height: 120, borderRadius: 20, background: '#f5f0eb', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <RowImage itemCode={item.item_code} name={item.item_name} groupId={item.group_id} />
+            </div>
+          </div>
+
+          {/* Product name */}
+          <h2 className="text-lg font-bold text-center mb-2" style={{ color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}>
+            {item.item_name}
+          </h2>
+
+          {/* Price range */}
+          {range && (
+            <div className="flex justify-center mb-4">
+              <div className="px-4 py-2 rounded-2xl" style={{ background: 'rgba(45,122,45,0.1)' }}>
+                <span className="text-base font-bold" style={{ color: '#2d7a2d' }}>
+                  {range.max && range.max > range.min + 0.01
+                    ? `${fmt(range.min)} – ${fmt(range.max)}`
+                    : fmt(range.min)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Compare link for groups */}
+          {item.group_id && (
+            <div className="flex justify-center mb-4">
+              <Link
+                href={`/compare?group=${item.group_id}`}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-bold"
+                style={{ background: '#BF2C2C', color: 'white' }}
+                onClick={onClose}
+              >
+                <GitCompare size={14} />
+                השווה מחירים בחנויות
+              </Link>
+            </div>
+          )}
+
+          {/* Nearby stores */}
+          {!isGroup && (
+            <div>
+              <h3 className="text-sm font-bold mb-3" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
+                מחירים בחנויות קרובות
+              </h3>
+              {loadingStores ? (
+                <div className="flex justify-center py-6">
+                  <div className="animate-spin w-6 h-6 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} />
+                </div>
+              ) : stores.length === 0 ? (
+                <p className="text-sm text-center py-4" style={{ color: '#B6AB9C' }}>
+                  {loadingStores ? '' : 'לא נמצאו חנויות קרובות'}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {stores.slice(0, 10).map((store, i) => (
+                    <div
+                      key={store.store_key}
+                      className="flex items-center justify-between px-4 py-3 rounded-2xl"
+                      style={{
+                        background: i === 0 ? 'rgba(45,122,45,0.08)' : 'rgba(255,255,255,0.7)',
+                        border: i === 0 ? '1.5px solid rgba(45,122,45,0.2)' : '1px solid rgba(182,171,156,0.3)',
+                      }}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="shrink-0 flex items-center justify-center" style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(182,171,156,0.2)' }}>
+                          <span className="text-xs font-bold" style={{ color: '#4F483F' }}>
+                            {store.chain_name.slice(0, 2)}
+                          </span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold truncate" style={{ color: '#3a342c' }}>{store.store_name}</p>
+                          <p className="text-xs flex items-center gap-1" style={{ color: '#B6AB9C' }}>
+                            <MapPin size={9} />
+                            {store.distance_km < 1
+                              ? `${Math.round(store.distance_km * 1000)} מ׳`
+                              : `${store.distance_km.toFixed(1)} ק״מ`}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="font-bold text-base shrink-0" style={{ color: i === 0 ? '#2d7a2d' : '#3a342c' }}>
+                        {fmt(store.total_price)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Swipeable row ─────────────────────────────────────────────────────────────
 function SwipeRow({
   item,
@@ -120,6 +335,7 @@ function SwipeRow({
   onToggleSelect,
   onPressStart,
   onPressEnd,
+  onTap,
 }: {
   item: ListItem;
   multiSelect: boolean;
@@ -130,6 +346,7 @@ function SwipeRow({
   onToggleSelect: () => void;
   onPressStart: () => void;
   onPressEnd: () => void;
+  onTap: () => void;
 }) {
   const [offsetX, setOffsetX] = useState(0);
   const startX = useRef<number | null>(null);
@@ -157,10 +374,13 @@ function SwipeRow({
 
   const handleTouchEnd = () => {
     onPressEnd();
+    const wasDragging = isDragging.current;
     if (offsetX > SWIPE_THRESHOLD) {
       onToggle(); // swipe right → check/uncheck
     } else if (offsetX < -SWIPE_THRESHOLD) {
       onDelete(); // swipe left → delete
+    } else if (!wasDragging && !multiSelect) {
+      onTap(); // tap without swipe → open sheet
     }
     setOffsetX(0);
     startX.current = null;
@@ -285,7 +505,7 @@ function SwipeRow({
                   השווה מחירים
                 </Link>
               ) : (
-                <p className="text-xs truncate" style={{ color: '#B6AB9C' }}>{item.item_code}</p>
+                <PriceRange itemCode={item.item_code} />
               )}
             </div>
           )}
@@ -359,6 +579,7 @@ export default function ShoppingListPage() {
 
   // Multi-select state
   const [multiSelect, setMultiSelect] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<ListItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Long-press refs per item
@@ -556,6 +777,7 @@ export default function ShoppingListPage() {
                     onToggleSelect={() => toggleSelect(item.id)}
                     onPressStart={() => handlePressStart(item.id)}
                     onPressEnd={() => handlePressEnd(item.id)}
+                    onTap={() => setSelectedItem(item)}
                   />
                 ))}
               </div>
@@ -580,6 +802,7 @@ export default function ShoppingListPage() {
                     onToggleSelect={() => toggleSelect(item.id)}
                     onPressStart={() => handlePressStart(item.id)}
                     onPressEnd={() => handlePressEnd(item.id)}
+                    onTap={() => setSelectedItem(item)}
                   />
                 ))}
               </div>
@@ -594,6 +817,7 @@ export default function ShoppingListPage() {
           </>
         )}
       </div>
+      {selectedItem && <ProductSheet item={selectedItem} onClose={() => setSelectedItem(null)} />}
     </div>
   );
 }

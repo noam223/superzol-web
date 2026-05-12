@@ -266,34 +266,16 @@ function StoreCard({
   return (
     <>
       <div
-        className={`rounded-3xl overflow-hidden relative${isTop ? ' animate-gold-shimmer' : ''}`}
+        className={`rounded-3xl overflow-hidden${isTop ? ' animate-gold-shimmer' : ''}`}
         style={{
           background: isTop ? 'rgba(245,200,66,0.07)' : 'rgba(233,216,197,0.85)',
           border: isTop ? `2px solid ${medal.border}` : '1.5px solid rgba(182,171,156,0.5)',
         }}
       >
-        {/* Chain logo as full-card background at 30% opacity */}
-        {getChainLogoUrl(store.chain_name) && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={getChainLogoUrl(store.chain_name)!}
-            alt=""
-            aria-hidden="true"
-            style={{
-              position: 'absolute', inset: 0,
-              width: '100%', height: '100%',
-              objectFit: 'cover',
-              opacity: 0.08,
-              pointerEvents: 'none',
-              userSelect: 'none',
-            }}
-          />
-        )}
-
         {/* Header */}
-        <button className="w-full flex items-center gap-3 p-4 text-right relative" onClick={() => setOpen(o => !o)}>
+        <button className="w-full flex items-center gap-3 p-4 text-right" onClick={() => setOpen(o => !o)}>
 
-          {/* Rank medal badge only */}
+          {/* Rank medal badge */}
           <div
             className="shrink-0 flex items-center justify-center font-bold"
             style={{
@@ -309,15 +291,18 @@ function StoreCard({
 
           {/* Store info */}
           <div className="flex-1 min-w-0 text-right">
-            {/* Top row: store name + "הכי זול" badge */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
-              {isTop && (
+            {/* "הכי זול" badge ABOVE store name */}
+            {isTop && (
+              <div className="mb-0.5">
                 <span className="animate-cheapest-badge text-xs font-bold px-2 py-0.5 rounded-full"
                   style={{ background: 'linear-gradient(90deg,#f5c842,#e8a800)', color: '#7a5500', letterSpacing: 0.3 }}>
                   הכי זול! 🏆
                 </span>
-              )}
+              </div>
+            )}
+            {/* Store name */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
             </div>
             {/* Bottom row: distance + coverage */}
             <div className="flex items-center gap-3 mt-0.5 flex-wrap">

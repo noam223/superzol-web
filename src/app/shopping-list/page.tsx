@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Square, X, MapPin } from 'lucide-react';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
+import { getChainLogoUrl } from '@/lib/chainLogos';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -447,10 +448,13 @@ function ProductSheet({ item, onClose }: { item: ListItem; onClose: () => void }
                       }}
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className="shrink-0 flex items-center justify-center" style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(182,171,156,0.2)' }}>
-                          <span className="text-xs font-bold" style={{ color: '#4F483F' }}>
-                            {store.chain_name.slice(0, 2)}
-                          </span>
+                        <div className="shrink-0 flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 8, background: '#fff', border: '1px solid rgba(182,171,156,0.25)', overflow: 'hidden', padding: 3 }}>
+                          {getChainLogoUrl(store.chain_name) ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                          ) : (
+                            <span className="text-xs font-bold" style={{ color: '#4F483F' }}>{store.chain_name.slice(0, 2)}</span>
+                          )}
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold truncate" style={{ color: '#3a342c' }}>{store.store_name}</p>

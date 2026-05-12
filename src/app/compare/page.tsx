@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase';
 import { PRODUCTS_INDEX } from '@/lib/typesense';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { getUserLocation, saveUserLocation } from '@/lib/location';
+import { getChainLogoUrl } from '@/lib/chainLogos';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -274,9 +275,14 @@ function StoreCard({
           <div className="flex-1 min-w-0 text-right">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
-              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(182,171,156,0.3)', color: '#8a7f75' }}>
-                {store.chain_name}
-              </span>
+              {getChainLogoUrl(store.chain_name) ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name} style={{ height: 18, maxWidth: 56, objectFit: 'contain' }} />
+              ) : (
+                <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(182,171,156,0.3)', color: '#8a7f75' }}>
+                  {store.chain_name}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3 mt-0.5 flex-wrap">
               <span className="text-xs" style={{ color: '#8a7f75' }}>📍 {store.distance_km.toFixed(1)} ק&quot;מ</span>

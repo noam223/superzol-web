@@ -639,90 +639,108 @@ function ProductsTab() {
   };
 
   return (
-    <div className="flex flex-col gap-4" dir="rtl">
+    <div dir="rtl">
       {/* Search panel — full width */}
-      <div>
-        <div className="relative mb-3">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" size={16} style={{ color: '#8a7f75' }} />
-          <input type="text" placeholder="חפש מוצר לעריכה..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} autoFocus className="w-full pr-9 pl-4 py-2.5 rounded-xl text-sm outline-none" style={{ background: 'rgba(255,255,255,0.8)', border: '1.5px solid rgba(182,171,156,0.5)', color: '#4F483F', fontFamily: 'Heebo, sans-serif' }} />
-        </div>
-        {searching ? <div className="flex justify-center py-6"><div className="animate-spin w-5 h-5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} /></div>
-          : searchResults.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
-              {searchResults.map(p => (
-                <button key={p.item_code} onClick={() => selectProduct(p)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-right transition-all" style={{ background: selectedProduct?.item_code === p.item_code ? 'rgba(191,44,44,0.1)' : 'rgba(233,216,197,0.85)', border: selectedProduct?.item_code === p.item_code ? '1.5px solid rgba(191,44,44,0.35)' : '1.5px solid rgba(182,171,156,0.4)' }}>
-                  <ProductThumb itemCode={p.item_code} name={p.item_name} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{p.item_name}</p>
-                    <p className="text-xs" style={{ color: '#8a7f75' }}>{p.item_code}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : searchQuery && !searching ? <p className="text-sm text-center py-6" style={{ color: '#8a7f75' }}>לא נמצאו תוצאות</p> : null}
+      <div className="relative mb-3">
+        <Search className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" size={16} style={{ color: '#8a7f75' }} />
+        <input type="text" placeholder="חפש מוצר לעריכה..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} autoFocus className="w-full pr-9 pl-4 py-2.5 rounded-xl text-sm outline-none" style={{ background: 'rgba(255,255,255,0.8)', border: '1.5px solid rgba(182,171,156,0.5)', color: '#4F483F', fontFamily: 'Heebo, sans-serif' }} />
       </div>
+      {searching ? <div className="flex justify-center py-6"><div className="animate-spin w-5 h-5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} /></div>
+        : searchResults.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            {searchResults.map(p => (
+              <button key={p.item_code} onClick={() => selectProduct(p)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-right transition-all" style={{ background: selectedProduct?.item_code === p.item_code ? 'rgba(191,44,44,0.1)' : 'rgba(233,216,197,0.85)', border: selectedProduct?.item_code === p.item_code ? '1.5px solid rgba(191,44,44,0.35)' : '1.5px solid rgba(182,171,156,0.4)' }}>
+                <ProductThumb itemCode={p.item_code} name={p.item_name} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{p.item_name}</p>
+                  <p className="text-xs" style={{ color: '#8a7f75' }}>{p.item_code}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : searchQuery && !searching ? <p className="text-sm text-center py-6" style={{ color: '#8a7f75' }}>לא נמצאו תוצאות</p> : null}
 
-      {/* Edit panel — full width, shown below search results when product selected */}
+      {/* Bottom sheet overlay — edit product */}
       {selectedProduct && (
-        <div className="rounded-2xl p-5" style={{ background: 'rgba(233,216,197,0.9)', border: '1.5px solid rgba(182,171,156,0.4)' }}>
-          {/* Product header */}
-          <div className="flex items-center gap-3 mb-5">
-            <ProductThumb itemCode={selectedProduct.item_code} name={selectedProduct.item_name} />
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm truncate" style={{ color: '#4F483F' }}>{selectedProduct.item_name}</p>
-              <p className="text-xs" style={{ color: '#8a7f75' }}>{selectedProduct.item_code} · ₪{selectedProduct.min_price?.toFixed(2)} · {selectedProduct.chain_count} רשתות</p>
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40"
+            style={{ background: 'rgba(0,0,0,0.35)' }}
+            onClick={() => setSelectedProduct(null)}
+          />
+          {/* Sheet */}
+          <div
+            className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl p-5 pb-8"
+            style={{ background: '#EDE4DA', boxShadow: '0 -4px 32px rgba(0,0,0,0.18)' }}
+            dir="rtl"
+          >
+            {/* Drag handle */}
+            <div className="w-10 h-1 rounded-full mx-auto mb-4" style={{ background: 'rgba(79,72,63,0.25)' }} />
+
+            {/* Product header */}
+            <div className="flex items-center gap-3 mb-5">
+              <ProductThumb itemCode={selectedProduct.item_code} name={selectedProduct.item_name} />
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm truncate" style={{ color: '#4F483F' }}>{selectedProduct.item_name}</p>
+                <p className="text-xs" style={{ color: '#8a7f75' }}>{selectedProduct.item_code} · ₪{selectedProduct.min_price?.toFixed(2)} · {selectedProduct.chain_count} רשתות</p>
+              </div>
+              <button onClick={() => setSelectedProduct(null)} className="p-1.5 rounded-xl" style={{ background: 'rgba(79,72,63,0.1)', color: '#4F483F' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Edit name */}
+            <div className="mb-4">
+              <label className="text-xs font-semibold mb-1 block" style={{ color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}>שם המוצר</label>
+              <input
+                type="text"
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSave()}
+                className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+                style={{ background: 'rgba(255,255,255,0.85)', border: '1.5px solid rgba(182,171,156,0.5)', color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}
+                autoFocus
+              />
+            </div>
+
+            {/* Edit search tags */}
+            <div className="mb-5">
+              <label className="text-xs font-semibold mb-1 block" style={{ color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}>תגיות חיפוש (מופרדות בפסיק)</label>
+              <input
+                type="text"
+                placeholder="למשל: שמן, קנולה, בישול"
+                value={editTags}
+                onChange={e => setEditTags(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+                style={{ background: 'rgba(255,255,255,0.85)', border: '1.5px solid rgba(182,171,156,0.5)', color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}
+              />
+              <p className="text-xs mt-1" style={{ color: '#B6AB9C' }}>תגיות אלו ישפרו את תוצאות החיפוש עבור מוצר זה</p>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving || deleting}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-bold disabled:opacity-40"
+                style={{ background: '#BF2C2C', color: 'white', fontFamily: 'Heebo, sans-serif' }}
+              >
+                <Save size={15} />
+                {saving ? 'שומר...' : 'שמור שינויים'}
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={saving || deleting}
+                className="flex items-center gap-2 px-4 py-3 rounded-2xl text-sm font-bold disabled:opacity-40"
+                style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', border: '1.5px solid rgba(191,44,44,0.2)', fontFamily: 'Heebo, sans-serif' }}
+              >
+                <Trash2 size={15} />
+                {deleting ? 'מוחק...' : 'מחק'}
+              </button>
             </div>
           </div>
-
-          {/* Edit name */}
-          <div className="mb-4">
-            <label className="text-xs font-semibold mb-1 block" style={{ color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}>שם המוצר</label>
-            <input
-              type="text"
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSave()}
-              className="w-full px-3 py-2 rounded-xl text-sm outline-none"
-              style={{ background: 'rgba(255,255,255,0.8)', border: '1.5px solid rgba(182,171,156,0.5)', color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}
-            />
-          </div>
-
-          {/* Edit search tags */}
-          <div className="mb-5">
-            <label className="text-xs font-semibold mb-1 block" style={{ color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}>תגיות חיפוש (מופרדות בפסיק)</label>
-            <input
-              type="text"
-              placeholder="למשל: שמן, קנולה, בישול"
-              value={editTags}
-              onChange={e => setEditTags(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl text-sm outline-none"
-              style={{ background: 'rgba(255,255,255,0.8)', border: '1.5px solid rgba(182,171,156,0.5)', color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}
-            />
-            <p className="text-xs mt-1" style={{ color: '#B6AB9C' }}>תגיות אלו ישפרו את תוצאות החיפוש עבור מוצר זה</p>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              disabled={saving || deleting}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold disabled:opacity-40 hover:opacity-80"
-              style={{ background: '#BF2C2C', color: 'white', fontFamily: 'Heebo, sans-serif' }}
-            >
-              <Save size={14} />
-              {saving ? 'שומר...' : 'שמור שינויים'}
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={saving || deleting}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold disabled:opacity-40 hover:opacity-80"
-              style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', border: '1.5px solid rgba(191,44,44,0.2)', fontFamily: 'Heebo, sans-serif' }}
-            >
-              <Trash2 size={14} />
-              {deleting ? 'מוחק...' : 'מחק'}
-            </button>
-          </div>
-        </div>
+        </>
       )}
     </div>
   );

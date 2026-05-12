@@ -149,13 +149,13 @@ function SwipeRow({
 
   return (
     <div
-      className="relative overflow-hidden"
+      className="relative"
       style={{ borderRadius: 16 }}
     >
       {/* Right action bg (check) — only rendered while swiping right */}
       {offsetX > 10 && (
         <div
-          className="absolute inset-0 flex items-center justify-end pr-5"
+          className="absolute inset-0 flex items-center justify-end pr-5 overflow-hidden"
           style={{ background: bgRight, borderRadius: 16 }}
         >
           <Check size={20} color="white" />
@@ -164,7 +164,7 @@ function SwipeRow({
       {/* Left action bg (delete) — only rendered while swiping left */}
       {offsetX < -10 && (
         <div
-          className="absolute inset-0 flex items-center justify-start pl-5"
+          className="absolute inset-0 flex items-center justify-start pl-5 overflow-hidden"
           style={{ background: bgLeft, borderRadius: 16 }}
         >
           <Trash2 size={20} color="white" />
@@ -182,7 +182,7 @@ function SwipeRow({
           borderRadius: 16,
           opacity: item.checked ? 0.6 : 1,
           boxShadow: '0 1px 4px rgba(79,72,63,0.07)',
-          paddingBottom: !multiSelect && !item.checked ? 28 : 0,
+          paddingBottom: 0,
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -306,23 +306,24 @@ function SwipeRow({
           </div>
         )}
 
-        {/* ── TRASH: absolute circle in bottom-left corner ── */}
-        {!multiSelect && (
-          <button
-            onClick={onDelete}
-            className="absolute flex items-center justify-center"
-            style={{
-              bottom: 6, left: 8,
-              width: 22, height: 22,
-              borderRadius: '50%',
-              background: 'rgba(191,44,44,0.1)',
-              color: 'rgba(191,44,44,0.6)',
-            }}
-          >
-            <Trash2 size={12} />
-          </button>
-        )}
       </div>
+
+      {/* ── TRASH: absolute circle floating in bottom-left corner of card ── */}
+      {!multiSelect && (
+        <button
+          onClick={onDelete}
+          className="absolute flex items-center justify-center z-10"
+          style={{
+            top: 6, left: 8,
+            width: 22, height: 22,
+            borderRadius: '50%',
+            background: 'rgba(191,44,44,0.12)',
+            color: 'rgba(191,44,44,0.65)',
+          }}
+        >
+          <Trash2 size={12} />
+        </button>
+      )}
     </div>
   );
 }

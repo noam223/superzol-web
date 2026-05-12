@@ -98,7 +98,7 @@ function SwipeRow({
       onPressEnd(); // cancel long-press if swiping
     }
     if (!isDragging.current) return;
-    // Clamp: right swipe (positive) = delete (RTL), left swipe (negative) = check (RTL)
+    // Clamp: right swipe (positive) = check/toggle, left swipe (negative) = delete
     const clamped = Math.max(-SWIPE_MAX, Math.min(SWIPE_MAX, dx));
     setOffsetX(clamped);
   };
@@ -106,47 +106,47 @@ function SwipeRow({
   const handleTouchEnd = () => {
     onPressEnd();
     if (offsetX > SWIPE_THRESHOLD) {
-      onDelete(); // swipe right → delete (RTL convention)
+      onToggle(); // swipe right → check/uncheck
     } else if (offsetX < -SWIPE_THRESHOLD) {
-      onToggle(); // swipe left → check/uncheck (RTL convention)
+      onDelete(); // swipe left → delete
     }
     setOffsetX(0);
     startX.current = null;
     isDragging.current = false;
   };
 
-  // Background color based on swipe direction (RTL: right=delete/red, left=check/green)
-  const bgRight = offsetX > 20 ? `rgba(191,44,44,${Math.min(0.7, offsetX / SWIPE_MAX)})` : 'transparent';
-  const bgLeft = offsetX < -20 ? `rgba(45,122,45,${Math.min(0.7, Math.abs(offsetX) / SWIPE_MAX)})` : 'transparent';
+  // Background color based on swipe direction (right=check/green, left=delete/red)
+  const bgRight = offsetX > 20 ? `rgba(45,122,45,${Math.min(0.7, offsetX / SWIPE_MAX)})` : 'transparent';
+  const bgLeft = offsetX < -20 ? `rgba(191,44,44,${Math.min(0.7, Math.abs(offsetX) / SWIPE_MAX)})` : 'transparent';
 
   return (
     <div
       className="relative overflow-hidden"
       style={{ borderRadius: 16 }}
     >
-      {/* Right action bg (delete) — only rendered while swiping right */}
+      {/* Right action bg (check) — only rendered while swiping right */}
       {offsetX > 10 && (
         <div
           className="absolute inset-0 flex items-center justify-end pr-5"
           style={{ background: bgRight, borderRadius: 16 }}
         >
-          <Trash2 size={20} color="white" />
+          <Check size={20} color="white" />
         </div>
       )}
-      {/* Left action bg (check) — only rendered while swiping left */}
+      {/* Left action bg (delete) — only rendered while swiping left */}
       {offsetX < -10 && (
         <div
           className="absolute inset-0 flex items-center justify-start pl-5"
           style={{ background: bgLeft, borderRadius: 16 }}
         >
-          <Check size={20} color="white" />
+          <Trash2 size={20} color="white" />
         </div>
       )}
 
       {/* Row content */}
       <div
         ref={rowRef}
-        className="relative flex items-center gap-3 px-3 py-2.5 select-none"
+        className="relative flex items-center gap-3 px-3 py-3.5 select-none"
         style={{
           transform: `translateX(${offsetX}px)`,
           transition: offsetX === 0 ? 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
@@ -217,21 +217,21 @@ function SwipeRow({
 
         {/* Quantity controls — hidden in multi-select or checked */}
         {!multiSelect && !item.checked && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={() => onUpdateQty(item.quantity - 1)}
-              className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-base"
-              style={{ background: 'rgba(182,171,156,0.3)', color: '#4F483F' }}
-            >
-              −
-            </button>
-            <span className="w-6 text-center text-sm font-semibold" style={{ color: '#4F483F' }}>{item.quantity}</span>
+          <div className="flex flex-col items-center gap-0.5 shrink-0">
             <button
               onClick={() => onUpdateQty(item.quantity + 1)}
               className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-base"
               style={{ background: 'rgba(182,171,156,0.3)', color: '#4F483F' }}
             >
               +
+            </button>
+            <span className="w-6 text-center text-sm font-semibold leading-none" style={{ color: '#4F483F' }}>{item.quantity}</span>
+            <button
+              onClick={() => onUpdateQty(item.quantity - 1)}
+              className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-base"
+              style={{ background: 'rgba(182,171,156,0.3)', color: '#4F483F' }}
+            >
+              −
             </button>
           </div>
         )}
@@ -480,7 +480,7 @@ export default function ShoppingListPage() {
             {/* Swipe hint */}
             {!multiSelect && items.length > 0 && (
               <p className="text-center text-xs mt-4" style={{ color: '#B6AB9C', fontFamily: 'Heebo, sans-serif' }}>
-                החלק ימינה למחיקה · החלק שמאלה לסימון · לחיצה ממושכת לבחירה מרובה
+                החלק ימינה לסימון · החלק שמאלה למחיקה · לחיצה ממושכת לבחירה מרובה
               </p>
             )}
           </>

@@ -182,6 +182,7 @@ function SwipeRow({
           borderRadius: 16,
           opacity: item.checked ? 0.6 : 1,
           boxShadow: '0 1px 4px rgba(79,72,63,0.07)',
+          paddingBottom: !multiSelect && !item.checked ? 28 : 0,
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -266,48 +267,61 @@ function SwipeRow({
           )}
         </div>
 
-        {/* ── LEFT SIDE: quantity pill + trash ── */}
-        <div className="flex flex-col items-center gap-1.5 shrink-0 pl-2 pr-3 py-2">
-          {!multiSelect && !item.checked && (
+        {/* ── LEFT SIDE: quantity capsule (tall, narrow) ── */}
+        {!multiSelect && !item.checked && (
+          <div
+            className="flex flex-col items-center shrink-0 pl-1 pr-3 py-2"
+          >
             <div
-              className="flex items-center"
+              className="flex flex-col items-center"
               style={{
                 background: 'rgba(182,171,156,0.2)',
                 borderRadius: 999,
                 border: '1px solid rgba(182,171,156,0.4)',
+                width: 30,
                 overflow: 'hidden',
               }}
             >
               <button
-                onClick={() => onUpdateQty(item.quantity - 1)}
+                onClick={() => onUpdateQty(item.quantity + 1)}
                 className="flex items-center justify-center font-bold"
-                style={{ width: 28, height: 28, color: '#6b6259', fontSize: 16 }}
+                style={{ width: 30, height: 30, color: '#6b6259', fontSize: 17 }}
               >
-                −
+                +
               </button>
               <span
                 className="text-sm font-bold text-center"
-                style={{ minWidth: 20, color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}
+                style={{ width: 30, lineHeight: '22px', color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}
               >
                 {item.quantity}
               </span>
               <button
-                onClick={() => onUpdateQty(item.quantity + 1)}
+                onClick={() => onUpdateQty(item.quantity - 1)}
                 className="flex items-center justify-center font-bold"
-                style={{ width: 28, height: 28, color: '#6b6259', fontSize: 16 }}
+                style={{ width: 30, height: 30, color: '#6b6259', fontSize: 17 }}
               >
-                +
+                −
               </button>
             </div>
-          )}
+          </div>
+        )}
+
+        {/* ── TRASH: absolute circle in bottom-left corner ── */}
+        {!multiSelect && (
           <button
             onClick={onDelete}
-            className="flex items-center justify-center"
-            style={{ width: 28, height: 28, borderRadius: 8, color: 'rgba(191,44,44,0.5)' }}
+            className="absolute flex items-center justify-center"
+            style={{
+              bottom: 6, left: 8,
+              width: 22, height: 22,
+              borderRadius: '50%',
+              background: 'rgba(191,44,44,0.1)',
+              color: 'rgba(191,44,44,0.6)',
+            }}
           >
-            <Trash2 size={15} />
+            <Trash2 size={12} />
           </button>
-        </div>
+        )}
       </div>
     </div>
   );

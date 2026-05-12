@@ -270,7 +270,8 @@ function SwipeRow({
         {/* ── LEFT SIDE: quantity capsule (tall, narrow) ── */}
         {!multiSelect && !item.checked && (
           <div
-            className="flex flex-col items-center shrink-0 pl-1 pr-3 py-2"
+            className="flex flex-col items-center shrink-0 pr-3 py-2"
+            style={{ paddingLeft: 20 }}
           >
             <div
               className="flex flex-col items-center"
@@ -318,9 +319,9 @@ function SwipeRow({
             transform: 'translate(-50%, -50%)',
             width: 24, height: 24,
             borderRadius: '50%',
-            background: 'rgba(191,44,44,0.15)',
-            color: 'rgba(191,44,44,0.7)',
-            boxShadow: '0 1px 4px rgba(191,44,44,0.2)',
+            background: '#BF2C2C',
+            color: '#fff',
+            boxShadow: '0 1px 4px rgba(191,44,44,0.35)',
           }}
         >
           <Trash2 size={12} />

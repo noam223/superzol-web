@@ -174,6 +174,12 @@ function GroupSheet({ item, onClose }: { item: ListItem; onClose: () => void }) 
   const [products, setProducts] = useState<GroupProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [nestedItem, setNestedItem] = useState<ListItem | null>(null);
+  const justOpened = useRef(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => { justOpened.current = false; }, 400);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     if (!item.group_id) return;
@@ -193,7 +199,7 @@ function GroupSheet({ item, onClose }: { item: ListItem; onClose: () => void }) 
       <div
         className="fixed inset-0 z-40"
         style={{ background: 'rgba(0,0,0,0.45)' }}
-        onClick={onClose}
+        onClick={() => { if (!justOpened.current) onClose(); }}
       />
       {/* Sheet */}
       <div
@@ -291,7 +297,13 @@ function ProductSheet({ item, onClose }: { item: ListItem; onClose: () => void }
   const [stores, setStores] = useState<NearbyStore[]>([]);
   const [loadingStores, setLoadingStores] = useState(false);
   const [range, setRange] = useState<{ min: number; max?: number } | null>(null);
+  const justOpened = useRef(true);
   const isGroup = item.item_code === 'group';
+
+  useEffect(() => {
+    const t = setTimeout(() => { justOpened.current = false; }, 400);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     if (!isGroup) {
@@ -322,7 +334,7 @@ function ProductSheet({ item, onClose }: { item: ListItem; onClose: () => void }
       <div
         className="fixed inset-0 z-40"
         style={{ background: 'rgba(0,0,0,0.45)' }}
-        onClick={onClose}
+        onClick={() => { if (!justOpened.current) onClose(); }}
       />
       {/* Sheet */}
       <div

@@ -170,23 +170,42 @@ function PriceRange({ itemCode }: { itemCode: string }) {
   );
 }
 
-// ── Group price range (fetches image_item_code from product_groups) ────────────
+// ── Group price range (min across all items in group, max across all items) ────
 function GroupPriceRange({ groupId }: { groupId: string }) {
-  const [itemCode, setItemCode] = useState<string | null>(null);
+  const [range, setRange] = useState<{ min: number; max: number } | null>(null);
 
   useEffect(() => {
     supabase
-      .from('product_groups')
-      .select('image_item_code')
-      .eq('id', groupId)
-      .single()
-      .then(({ data }) => {
-        if (data?.image_item_code) setItemCode(data.image_item_code);
+      .from('product_group_items')
+      .select('item_code')
+      .eq('group_id', groupId)
+      .then(async ({ data }) => {
+        if (!data || data.length === 0) return;
+        const prices = await Promise.all(
+          data.map(({ item_code }: { item_code: string }) => fetchProductIndex(item_code))
+        );
+        const mins: number[] = [];
+        const maxs: number[] = [];
+        for (const p of prices) {
+          if (p?.min_price) mins.push(p.min_price);
+          if (p?.max_price) maxs.push(p.max_price);
+          else if (p?.min_price) maxs.push(p.min_price);
+        }
+        if (mins.length > 0) {
+          setRange({ min: Math.min(...mins), max: Math.max(...maxs) });
+        }
       });
   }, [groupId]);
 
-  if (!itemCode) return null;
-  return <PriceRange itemCode={itemCode} />;
+  if (!range) return null;
+  const fmt = (n: number) => `₪${n.toFixed(2)}`;
+  return (
+    <span className="text-xs font-medium" style={{ color: '#2d7a2d' }}>
+      {range.max > range.min + 0.01
+        ? `${fmt(range.min)} – ${fmt(range.max)}`
+        : fmt(range.min)}
+    </span>
+  );
 }
 
 // ── Group bottom sheet ────────────────────────────────────────────────────────

@@ -250,7 +250,7 @@ function StoreCard({
   totalItems: number;
   onReplace: (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(rank === 1);
+  const [open, setOpen] = useState(false);
   const [substituteFor, setSubstituteFor] = useState<ItemResult | null>(null);
   const coveragePct = Math.round((store.products_found / totalItems) * 100);
   const isTop = rank === 1;
@@ -266,11 +266,10 @@ function StoreCard({
   return (
     <>
       <div
-        className="rounded-3xl overflow-hidden"
+        className={`rounded-3xl overflow-hidden${isTop ? ' animate-gold-shimmer' : ''}`}
         style={{
           background: isTop ? 'rgba(245,200,66,0.07)' : 'rgba(233,216,197,0.85)',
           border: isTop ? `2px solid ${medal.border}` : '1.5px solid rgba(182,171,156,0.5)',
-          boxShadow: isTop ? medal.shadow : 'none',
         }}
       >
         {/* Header */}
@@ -278,17 +277,17 @@ function StoreCard({
 
           {/* Rank medal badge */}
           <div
-            className="shrink-0 flex items-center justify-center font-bold text-sm"
+            className="shrink-0 flex items-center justify-center font-bold"
             style={{
               width: 34, height: 34, borderRadius: '50%',
               background: medal.bg,
               color: medal.text,
               boxShadow: rank <= 3 ? `0 2px 6px ${medal.border}` : 'none',
               flexShrink: 0,
-              fontSize: rank === 1 ? 15 : 13,
+              fontSize: 15,
             }}
           >
-            {rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank}
+            {rank}
           </div>
 
           {/* Store info */}
@@ -296,15 +295,16 @@ function StoreCard({
             {/* Top row: logo + store name */}
             <div className="flex items-center gap-2 flex-wrap">
               {getChainLogoUrl(store.chain_name) ? (
-                <div className="shrink-0" style={{
-                  width: 48, height: 30, borderRadius: 8,
+                <div className="shrink-0 flex items-center justify-center" style={{
+                  width: 52, height: 32, borderRadius: 8,
                   overflow: 'hidden', background: '#fff',
                   border: '1px solid rgba(182,171,156,0.25)',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                  padding: 3,
                 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                 </div>
               ) : (
                 <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(182,171,156,0.3)', color: '#8a7f75' }}>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Square } from 'lucide-react';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
@@ -14,6 +14,7 @@ type ListItem = {
   quantity: number;
   checked: boolean;
   group_id?: string | null;
+  image_item_code?: string | null;
 };
 
 const LONG_PRESS_MS = 500;
@@ -58,23 +59,46 @@ function ProductImage({ itemCode, name, size = 52 }: { itemCode: string; name: s
 }
 
 // ── Row image (contained inside parent box) ───────────────────────────────────
-function RowImage({ itemCode, name }: { itemCode: string; name: string }) {
-  const [src, setSrc] = useState(() => itemCode && itemCode !== 'group' ? getProductImageUrl(itemCode) : '');
-  const [failed, setFailed] = useState(!itemCode || itemCode === 'group');
+function RowImage({ itemCode, name, groupId }: { itemCode: string; name: string; groupId?: string | null }) {
+  const isGroup = itemCode === 'group';
+  const [resolvedCode, setResolvedCode] = useState<string | null>(!isGroup ? itemCode : null);
+  const [src, setSrc] = useState(() => !isGroup ? getProductImageUrl(itemCode) : '');
+  const [failed, setFailed] = useState(isGroup && !groupId);
+
+  useEffect(() => {
+    if (isGroup && groupId && !resolvedCode) {
+      supabase
+        .from('product_groups')
+        .select('image_item_code')
+        .eq('id', groupId)
+        .single()
+        .then(({ data }) => {
+          if (data?.image_item_code) {
+            setResolvedCode(data.image_item_code);
+            setSrc(getProductImageUrl(data.image_item_code));
+            setFailed(false);
+          } else {
+            setFailed(true);
+          }
+        });
+    }
+  }, [isGroup, groupId, resolvedCode]);
 
   const handleError = () => {
-    if (itemCode && src === getProductImageUrl(itemCode)) {
-      setSrc(getProductImageFallback(itemCode));
+    if (resolvedCode && src === getProductImageUrl(resolvedCode)) {
+      setSrc(getProductImageFallback(resolvedCode));
     } else {
       setFailed(true);
     }
   };
 
-  if (failed || !itemCode || itemCode === 'group') {
+  if (failed || (!resolvedCode && isGroup)) {
     return (
-      <span style={{ fontSize: 28 }}>{itemCode === 'group' ? '📦' : '🛒'}</span>
+      <span style={{ fontSize: 28 }}>{isGroup ? '📦' : '🛒'}</span>
     );
   }
+
+  if (!src) return <span style={{ fontSize: 28 }}>🛒</span>;
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
@@ -226,7 +250,7 @@ function SwipeRow({
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
-          <RowImage itemCode={item.item_code} name={item.item_name} />
+          <RowImage itemCode={item.item_code} name={item.item_name} groupId={item.group_id} />
         </div>
 
         {/* ── CENTER: name + subtitle ── */}

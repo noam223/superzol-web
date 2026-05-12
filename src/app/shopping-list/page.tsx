@@ -9,6 +9,11 @@ import toast from 'react-hot-toast';
 
 const PRODUCTS_INDEX = 'products_index';
 
+type GroupProduct = {
+  item_code: string;
+  item_name: string;
+};
+
 type NearbyStore = {
   store_key: string;
   chain_name: string;
@@ -161,6 +166,123 @@ function PriceRange({ itemCode }: { itemCode: string }) {
         ? `${fmt(range.min)} – ${fmt(range.max)}`
         : fmt(range.min)}
     </span>
+  );
+}
+
+// ── Group bottom sheet ────────────────────────────────────────────────────────
+function GroupSheet({ item, onClose }: { item: ListItem; onClose: () => void }) {
+  const [products, setProducts] = useState<GroupProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [nestedItem, setNestedItem] = useState<ListItem | null>(null);
+
+  useEffect(() => {
+    if (!item.group_id) return;
+    supabase
+      .from('product_group_items')
+      .select('item_code, item_name')
+      .eq('group_id', item.group_id)
+      .then(({ data }) => {
+        setProducts((data as GroupProduct[]) || []);
+        setLoading(false);
+      });
+  }, [item.group_id]);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40"
+        style={{ background: 'rgba(0,0,0,0.45)' }}
+        onClick={onClose}
+      />
+      {/* Sheet */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 flex flex-col"
+        style={{
+          background: '#EDE4DA',
+          borderRadius: '24px 24px 0 0',
+          boxShadow: '0 -4px 32px rgba(0,0,0,0.18)',
+          maxHeight: '85vh',
+        }}
+        dir="rtl"
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
+          <div className="w-10 h-1 rounded-full" style={{ background: 'rgba(79,72,63,0.25)' }} />
+        </div>
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 left-4 flex items-center justify-center"
+          style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(79,72,63,0.1)', color: '#4F483F' }}
+        >
+          <X size={16} />
+        </button>
+
+        {/* Header */}
+        <div className="px-5 pt-2 pb-3 shrink-0">
+          <h2 className="text-lg font-bold text-center" style={{ color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}>
+            {item.item_name}
+          </h2>
+          <p className="text-xs text-center mt-0.5" style={{ color: '#B6AB9C' }}>בחר מוצר לפרטים ומחירים</p>
+        </div>
+
+        {/* Scrollable product list */}
+        <div className="overflow-y-auto flex-1 px-4 pb-8 flex flex-col gap-3">
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <div className="animate-spin w-6 h-6 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} />
+            </div>
+          ) : products.length === 0 ? (
+            <p className="text-sm text-center py-8" style={{ color: '#B6AB9C' }}>אין מוצרים בקבוצה</p>
+          ) : (
+            products.map(p => (
+              <button
+                key={p.item_code}
+                className="flex items-center gap-3 w-full text-right"
+                style={{
+                  background: 'rgba(255,255,255,0.82)',
+                  borderRadius: 16,
+                  padding: '10px 14px',
+                  boxShadow: '0 1px 4px rgba(79,72,63,0.07)',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+                onClick={() => setNestedItem({
+                  id: p.item_code,
+                  item_code: p.item_code,
+                  item_name: p.item_name,
+                  quantity: 1,
+                  checked: false,
+                  group_id: null,
+                })}
+              >
+                {/* Image */}
+                <div style={{ width: 52, height: 52, borderRadius: 12, background: '#f5f0eb', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <ProductImage itemCode={p.item_code} name={p.item_name} size={52} />
+                </div>
+                {/* Name + price */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold leading-snug" style={{ color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}>
+                    {p.item_name}
+                  </p>
+                  <div className="mt-0.5">
+                    <PriceRange itemCode={p.item_code} />
+                  </div>
+                </div>
+                {/* Chevron */}
+                <span style={{ color: '#B6AB9C', fontSize: 18, flexShrink: 0 }}>›</span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Nested ProductSheet */}
+      {nestedItem && (
+        <ProductSheet item={nestedItem} onClose={() => setNestedItem(null)} />
+      )}
+    </>
   );
 }
 
@@ -496,14 +618,9 @@ function SwipeRow({
           {!multiSelect && (
             <div className="mt-1">
               {item.group_id ? (
-                <Link
-                  href={`/compare?group=${item.group_id}`}
-                  className="inline-flex items-center gap-1 text-xs font-medium"
-                  style={{ color: '#BF2C2C' }}
-                >
-                  <GitCompare size={10} />
-                  השווה מחירים
-                </Link>
+                <span className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: '#B6AB9C' }}>
+                  📦 קבוצת מוצרים
+                </span>
               ) : (
                 <PriceRange itemCode={item.item_code} />
               )}
@@ -580,6 +697,7 @@ export default function ShoppingListPage() {
   // Multi-select state
   const [multiSelect, setMultiSelect] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ListItem | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<ListItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Long-press refs per item
@@ -777,7 +895,7 @@ export default function ShoppingListPage() {
                     onToggleSelect={() => toggleSelect(item.id)}
                     onPressStart={() => handlePressStart(item.id)}
                     onPressEnd={() => handlePressEnd(item.id)}
-                    onTap={() => setSelectedItem(item)}
+                    onTap={() => item.group_id ? setSelectedGroup(item) : setSelectedItem(item)}
                   />
                 ))}
               </div>
@@ -802,7 +920,7 @@ export default function ShoppingListPage() {
                     onToggleSelect={() => toggleSelect(item.id)}
                     onPressStart={() => handlePressStart(item.id)}
                     onPressEnd={() => handlePressEnd(item.id)}
-                    onTap={() => setSelectedItem(item)}
+                    onTap={() => item.group_id ? setSelectedGroup(item) : setSelectedItem(item)}
                   />
                 ))}
               </div>
@@ -818,6 +936,7 @@ export default function ShoppingListPage() {
         )}
       </div>
       {selectedItem && <ProductSheet item={selectedItem} onClose={() => setSelectedItem(null)} />}
+      {selectedGroup && <GroupSheet item={selectedGroup} onClose={() => setSelectedGroup(null)} />}
     </div>
   );
 }

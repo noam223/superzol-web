@@ -169,6 +169,25 @@ function PriceRange({ itemCode }: { itemCode: string }) {
   );
 }
 
+// ── Group price range (fetches image_item_code from product_groups) ────────────
+function GroupPriceRange({ groupId }: { groupId: string }) {
+  const [itemCode, setItemCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from('product_groups')
+      .select('image_item_code')
+      .eq('id', groupId)
+      .single()
+      .then(({ data }) => {
+        if (data?.image_item_code) setItemCode(data.image_item_code);
+      });
+  }, [groupId]);
+
+  if (!itemCode) return null;
+  return <PriceRange itemCode={itemCode} />;
+}
+
 // ── Group bottom sheet ────────────────────────────────────────────────────────
 function GroupSheet({ item, onClose }: { item: ListItem; onClose: () => void }) {
   const [products, setProducts] = useState<GroupProduct[]>([]);
@@ -639,8 +658,20 @@ function SwipeRow({
             {item.item_name}
           </p>
           {!multiSelect && (
-            <div className="mt-1">
-              <PriceRange itemCode={item.group_id ? (item.image_item_code ?? '') : item.item_code} />
+            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+              {item.group_id ? (
+                <>
+                  <span
+                    className="inline-flex items-center text-xs font-bold px-1.5 py-0.5 rounded-md"
+                    style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', fontSize: 10 }}
+                  >
+                    ✦ מוצר חכם
+                  </span>
+                  <GroupPriceRange groupId={item.group_id} />
+                </>
+              ) : (
+                <PriceRange itemCode={item.item_code} />
+              )}
             </div>
           )}
         </div>

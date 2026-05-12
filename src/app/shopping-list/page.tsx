@@ -270,7 +270,8 @@ function SwipeRow({
         {/* ── LEFT SIDE: quantity capsule (tall, narrow) ── */}
         {!multiSelect && !item.checked && (
           <div
-            className="flex flex-col items-center shrink-0 pl-1 pr-3 py-2"
+            className="flex flex-col items-center shrink-0 pl-1 pr-3"
+            style={{ paddingTop: 32, paddingBottom: 8 }}
           >
             <div
               className="flex flex-col items-center"

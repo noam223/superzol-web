@@ -57,7 +57,7 @@ function ProductImage({ itemCode, name, size = 52 }: { itemCode: string; name: s
   );
 }
 
-// ── Row image (fills full height, cover fit) ──────────────────────────────────
+// ── Row image (contained inside parent box) ───────────────────────────────────
 function RowImage({ itemCode, name }: { itemCode: string; name: string }) {
   const [src, setSrc] = useState(() => itemCode && itemCode !== 'group' ? getProductImageUrl(itemCode) : '');
   const [failed, setFailed] = useState(!itemCode || itemCode === 'group');
@@ -72,20 +72,16 @@ function RowImage({ itemCode, name }: { itemCode: string; name: string }) {
 
   if (failed || !itemCode || itemCode === 'group') {
     return (
-      <div className="self-stretch shrink-0" style={{ width: 64, background: 'linear-gradient(135deg,#f0e8e0,#e8ddd5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>
-        {itemCode === 'group' ? '📦' : '🛒'}
-      </div>
+      <span style={{ fontSize: 28 }}>{itemCode === 'group' ? '📦' : '🛒'}</span>
     );
   }
 
   return (
-    <div className="self-stretch shrink-0" style={{ width: 64, overflow: 'hidden' }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src} alt={name} onError={handleError}
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-      />
-    </div>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src} alt={name} onError={handleError}
+      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+    />
   );
 }
 
@@ -178,14 +174,14 @@ function SwipeRow({
       {/* Row content */}
       <div
         ref={rowRef}
-        className="relative flex items-center select-none overflow-hidden"
+        className="relative flex items-center gap-0 select-none"
         style={{
           transform: `translateX(${offsetX}px)`,
           transition: offsetX === 0 ? 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
-          background: isSelected ? 'rgba(191,44,44,0.07)' : 'rgba(255,255,255,0.7)',
+          background: isSelected ? 'rgba(191,44,44,0.06)' : 'rgba(255,255,255,0.82)',
           borderRadius: 16,
-          opacity: item.checked ? 0.65 : 1,
-          minHeight: 72,
+          opacity: item.checked ? 0.6 : 1,
+          boxShadow: '0 1px 4px rgba(79,72,63,0.07)',
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -195,101 +191,123 @@ function SwipeRow({
         onPointerLeave={!('ontouchstart' in window) ? onPressEnd : undefined}
         onPointerCancel={!('ontouchstart' in window) ? onPressEnd : undefined}
       >
-        {/* Checkbox / check button — right edge */}
-        <div className="flex items-center justify-center px-3 self-stretch">
+        {/* ── RIGHT SIDE: checkbox ── */}
+        <div className="flex items-center justify-center shrink-0" style={{ width: 44, alignSelf: 'stretch' }}>
           {multiSelect ? (
-            <button onClick={onToggleSelect} className="shrink-0">
+            <button onClick={onToggleSelect}>
               {isSelected
-                ? <CheckSquare size={22} style={{ color: '#BF2C2C' }} />
-                : <Square size={22} style={{ color: '#B6AB9C' }} />}
+                ? <CheckSquare size={20} style={{ color: '#BF2C2C' }} />
+                : <Square size={20} style={{ color: '#C4BAB0' }} />}
             </button>
           ) : (
             <button
               onClick={onToggle}
-              className="shrink-0 flex items-center justify-center transition-all"
+              className="flex items-center justify-center transition-all"
               style={{
-                width: 26, height: 26, borderRadius: '50%',
-                border: item.checked ? 'none' : '2px solid #B6AB9C',
+                width: 24, height: 24, borderRadius: '50%',
+                border: item.checked ? 'none' : '2px solid #C4BAB0',
                 background: item.checked ? '#2d7a2d' : 'transparent',
+                flexShrink: 0,
               }}
             >
-              {item.checked && <Check size={13} color="white" />}
+              {item.checked && <Check size={12} color="white" />}
             </button>
           )}
         </div>
 
-        {/* Product image — fills full row height */}
-        <RowImage itemCode={item.item_code} name={item.item_name} />
-
-        {/* Name + subtitle */}
+        {/* ── PRODUCT IMAGE: contained square ── */}
         <div
-          className="flex-1 min-w-0 py-3 px-2"
+          className="shrink-0 my-2"
+          style={{
+            width: 56, height: 56, borderRadius: 12,
+            background: '#f5f0eb',
+            overflow: 'hidden',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <RowImage itemCode={item.item_code} name={item.item_name} />
+        </div>
+
+        {/* ── CENTER: name + subtitle ── */}
+        <div
+          className="flex-1 min-w-0 px-3 py-3"
           onClick={multiSelect ? onToggleSelect : undefined}
           style={multiSelect ? { cursor: 'pointer' } : undefined}
         >
           <p
-            className="font-semibold text-sm leading-snug truncate"
+            className="font-bold text-sm leading-snug"
             style={{
-              color: '#4F483F',
+              color: '#3a342c',
               fontFamily: 'Heebo, sans-serif',
               textDecoration: item.checked ? 'line-through' : 'none',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
             }}
           >
             {item.item_name}
           </p>
           {!multiSelect && (
-            item.group_id ? (
-              <Link
-                href={`/compare?group=${item.group_id}`}
-                className="text-xs flex items-center gap-1 mt-0.5"
-                style={{ color: '#BF2C2C' }}
-              >
-                <GitCompare size={10} />
-                השווה מחירים
-              </Link>
-            ) : (
-              <p className="text-xs mt-0.5 truncate" style={{ color: '#B6AB9C' }}>{item.item_code}</p>
-            )
+            <div className="mt-1">
+              {item.group_id ? (
+                <Link
+                  href={`/compare?group=${item.group_id}`}
+                  className="inline-flex items-center gap-1 text-xs font-medium"
+                  style={{ color: '#BF2C2C' }}
+                >
+                  <GitCompare size={10} />
+                  השווה מחירים
+                </Link>
+              ) : (
+                <p className="text-xs truncate" style={{ color: '#B6AB9C' }}>{item.item_code}</p>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Quantity controls in capsule — hidden in multi-select or checked */}
-        {!multiSelect && !item.checked && (
-          <div
-            className="flex flex-col items-center shrink-0 mx-2"
-            style={{
-              background: 'rgba(182,171,156,0.18)',
-              borderRadius: 20,
-              padding: '4px 2px',
-              border: '1px solid rgba(182,171,156,0.35)',
-            }}
+        {/* ── LEFT SIDE: quantity pill + trash ── */}
+        <div className="flex flex-col items-center gap-1.5 shrink-0 pl-2 pr-3 py-2">
+          {!multiSelect && !item.checked && (
+            <div
+              className="flex items-center"
+              style={{
+                background: 'rgba(182,171,156,0.2)',
+                borderRadius: 999,
+                border: '1px solid rgba(182,171,156,0.4)',
+                overflow: 'hidden',
+              }}
+            >
+              <button
+                onClick={() => onUpdateQty(item.quantity - 1)}
+                className="flex items-center justify-center font-bold"
+                style={{ width: 28, height: 28, color: '#6b6259', fontSize: 16 }}
+              >
+                −
+              </button>
+              <span
+                className="text-sm font-bold text-center"
+                style={{ minWidth: 20, color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}
+              >
+                {item.quantity}
+              </span>
+              <button
+                onClick={() => onUpdateQty(item.quantity + 1)}
+                className="flex items-center justify-center font-bold"
+                style={{ width: 28, height: 28, color: '#6b6259', fontSize: 16 }}
+              >
+                +
+              </button>
+            </div>
+          )}
+          <button
+            onClick={onDelete}
+            className="flex items-center justify-center"
+            style={{ width: 28, height: 28, borderRadius: 8, color: 'rgba(191,44,44,0.5)' }}
           >
-            <button
-              onClick={() => onUpdateQty(item.quantity + 1)}
-              className="w-7 h-7 flex items-center justify-center font-bold text-base"
-              style={{ color: '#4F483F' }}
-            >
-              +
-            </button>
-            <span className="w-6 text-center text-sm font-semibold leading-none" style={{ color: '#4F483F' }}>{item.quantity}</span>
-            <button
-              onClick={() => onUpdateQty(item.quantity - 1)}
-              className="w-7 h-7 flex items-center justify-center font-bold text-base"
-              style={{ color: '#4F483F' }}
-            >
-              −
-            </button>
-          </div>
-        )}
-
-        {/* Permanent trash icon — left edge */}
-        <button
-          onClick={onDelete}
-          className="flex items-center justify-center self-stretch px-3 shrink-0"
-          style={{ color: 'rgba(191,44,44,0.45)' }}
-        >
-          <Trash2 size={18} />
-        </button>
+            <Trash2 size={15} />
+          </button>
+        </div>
       </div>
     </div>
   );

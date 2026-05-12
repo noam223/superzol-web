@@ -267,41 +267,37 @@ function SwipeRow({
           )}
         </div>
 
-        {/* ── LEFT SIDE: quantity capsule (tall, narrow) ── */}
+        {/* ── LEFT SIDE: quantity stepper (horizontal row) ── */}
         {!multiSelect && !item.checked && (
-          <div
-            className="flex flex-col items-center shrink-0 pr-3 py-2"
-            style={{ paddingLeft: 20 }}
-          >
+          <div className="flex items-center shrink-0 pr-3 py-2" style={{ paddingLeft: 12 }}>
             <div
-              className="flex flex-col items-center"
+              className="flex items-center"
               style={{
                 background: 'rgba(182,171,156,0.2)',
                 borderRadius: 10,
                 border: '1px solid rgba(182,171,156,0.4)',
-                width: 30,
                 overflow: 'hidden',
               }}
             >
               <button
-                onClick={() => onUpdateQty(item.quantity + 1)}
+                onClick={() => onUpdateQty(item.quantity - 1)}
                 className="flex items-center justify-center font-bold"
-                style={{ width: 30, height: 24, color: '#6b6259', fontSize: 15 }}
+                style={{ width: 26, height: 26, color: '#6b6259', fontSize: 15 }}
               >
-                +
+                −
               </button>
               <span
                 className="text-xs font-bold text-center"
-                style={{ width: 30, lineHeight: '18px', color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}
+                style={{ minWidth: 18, color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}
               >
                 {item.quantity}
               </span>
               <button
-                onClick={() => onUpdateQty(item.quantity - 1)}
+                onClick={() => onUpdateQty(item.quantity + 1)}
                 className="flex items-center justify-center font-bold"
-                style={{ width: 30, height: 24, color: '#6b6259', fontSize: 15 }}
+                style={{ width: 26, height: 26, color: '#6b6259', fontSize: 15 }}
               >
-                −
+                +
               </button>
             </div>
           </div>

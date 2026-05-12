@@ -179,19 +179,19 @@ function SwipeRow({
       {/* Right action bg (check) — only rendered while swiping right */}
       {offsetX > 10 && (
         <div
-          className="absolute inset-0 flex items-center justify-end pr-5 overflow-hidden"
-          style={{ background: bgRight, borderRadius: 16 }}
+          className="absolute inset-0 flex items-center justify-end overflow-hidden"
+          style={{ background: bgRight, borderRadius: 16, paddingRight: 32 }}
         >
-          <Check size={20} color="white" />
+          <Check size={22} color="white" />
         </div>
       )}
       {/* Left action bg (delete) — only rendered while swiping left */}
       {offsetX < -10 && (
         <div
-          className="absolute inset-0 flex items-center justify-start pl-5 overflow-hidden"
-          style={{ background: bgLeft, borderRadius: 16 }}
+          className="absolute inset-0 flex items-center justify-start overflow-hidden"
+          style={{ background: bgLeft, borderRadius: 16, paddingLeft: 32 }}
         >
-          <Trash2 size={20} color="white" />
+          <Trash2 size={22} color="white" />
         </div>
       )}
 

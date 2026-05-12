@@ -270,8 +270,7 @@ function SwipeRow({
         {/* ── LEFT SIDE: quantity capsule (tall, narrow) ── */}
         {!multiSelect && !item.checked && (
           <div
-            className="flex flex-col items-center shrink-0 pl-1 pr-3"
-            style={{ paddingTop: 32, paddingBottom: 8 }}
+            className="flex flex-col items-center shrink-0 pl-1 pr-3 py-2"
           >
             <div
               className="flex flex-col items-center"
@@ -309,17 +308,19 @@ function SwipeRow({
 
       </div>
 
-      {/* ── TRASH: absolute circle floating in bottom-left corner of card ── */}
+      {/* ── TRASH: circle sitting on top-left corner edge (half in, half out) ── */}
       {!multiSelect && (
         <button
           onClick={onDelete}
           className="absolute flex items-center justify-center z-10"
           style={{
-            top: 6, left: 8,
-            width: 22, height: 22,
+            top: 0, left: 0,
+            transform: 'translate(-50%, -50%)',
+            width: 24, height: 24,
             borderRadius: '50%',
-            background: 'rgba(191,44,44,0.12)',
-            color: 'rgba(191,44,44,0.65)',
+            background: 'rgba(191,44,44,0.15)',
+            color: 'rgba(191,44,44,0.7)',
+            boxShadow: '0 1px 4px rgba(191,44,44,0.2)',
           }}
         >
           <Trash2 size={12} />
@@ -520,7 +521,7 @@ export default function ShoppingListPage() {
             {unchecked.length > 0 && (
               <div
                 className="rounded-2xl p-3 mb-4 flex flex-col gap-1.5"
-                style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.4)' }}
+                style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.4)', overflow: 'visible', paddingTop: 16 }}
               >
                 {unchecked.map(item => (
                   <SwipeRow
@@ -543,7 +544,7 @@ export default function ShoppingListPage() {
             {checked.length > 0 && (
               <div
                 className="rounded-2xl p-3 flex flex-col gap-1.5 opacity-65"
-                style={{ background: 'rgba(233,216,197,0.6)', border: '1.5px solid rgba(182,171,156,0.3)' }}
+                style={{ background: 'rgba(233,216,197,0.6)', border: '1.5px solid rgba(182,171,156,0.3)', overflow: 'visible', paddingTop: 16 }}
               >
                 <p className="text-xs font-medium px-1 mb-1" style={{ color: '#8a7f75' }}>נרכשו ({checked.length})</p>
                 {checked.map(item => (

@@ -275,18 +275,28 @@ function StoreCard({
         {/* Header */}
         <button className="w-full flex items-center gap-3 p-4 text-right" onClick={() => setOpen(o => !o)}>
 
-          {/* Rank medal badge */}
-          <div
-            className="shrink-0 flex items-center justify-center font-bold"
-            style={{
-              width: 34, height: 34, borderRadius: '50%',
-              background: medal.bg,
-              color: medal.text,
-              boxShadow: rank <= 3 ? `0 2px 6px ${medal.border}` : 'none',
-              fontSize: 15,
-            }}
-          >
-            {rank}
+          {/* Rank medal badge + chain logo stacked */}
+          <div className="shrink-0 flex flex-col items-center gap-1.5">
+            <div
+              className="flex items-center justify-center font-bold"
+              style={{
+                width: 34, height: 34, borderRadius: '50%',
+                background: medal.bg,
+                color: medal.text,
+                boxShadow: rank <= 3 ? `0 2px 6px ${medal.border}` : 'none',
+                fontSize: 15,
+              }}
+            >
+              {rank}
+            </div>
+            {getChainLogoUrl(store.chain_name) ? (
+              <div style={{ width: 44, height: 28, borderRadius: 7, overflow: 'hidden', background: '#fff', border: '1px solid rgba(182,171,156,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+            ) : (
+              <span style={{ fontSize: 9, color: '#8a7f75', textAlign: 'center', maxWidth: 44, lineHeight: 1.2 }}>{store.chain_name}</span>
+            )}
           </div>
 
           {/* Store info */}

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Square, X, MapPin } from 'lucide-react';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { getChainLogoUrl } from '@/lib/chainLogos';
+import { getUserLocation } from '@/lib/location';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -44,6 +45,53 @@ async function fetchNearbyPrices(itemCode: string, itemName: string, lat: number
     const data = await res.json();
     return (data.stores || []).filter((s: NearbyStore) => s.total_price > 0);
   } catch { return []; }
+}
+
+/**
+ * Given a list of items and a user location, returns the set of item IDs
+ * that are NOT available in any nearby store (within radius_km).
+ */
+async function findOutOfRangeItemIds(
+  items: ListItem[],
+  lat: number,
+  lng: number,
+  radius_km = 15,
+): Promise<Set<string>> {
+  // Only check non-group items with a real item_code
+  const checkable = items.filter(i => i.item_code && i.item_code !== 'group');
+  if (checkable.length === 0) return new Set();
+
+  try {
+    const res = await fetch('/api/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lat,
+        lng,
+        radius_km,
+        items: checkable.map(i => ({ item_code: i.item_code, item_name: i.item_name, quantity: 1 })),
+      }),
+    });
+    if (!res.ok) return new Set();
+    const data = await res.json();
+
+    // Build a set of item_codes that ARE found in at least one store
+    const foundCodes = new Set<string>();
+    for (const store of (data.stores || [])) {
+      for (const it of (store.items || [])) {
+        if (it.found) foundCodes.add(it.item_code);
+      }
+    }
+
+    // Items not found in any store → out of range
+    const outIds = new Set<string>();
+    for (const item of checkable) {
+      if (!foundCodes.has(item.item_code)) outIds.add(item.id);
+    }
+    return outIds;
+  } catch {
+    return new Set();
+  }
 }
 
 type ListItem = {
@@ -467,10 +515,10 @@ function ProductSheet({ item, onClose }: { item: ListItem; onClose: () => void }
                       }}
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className="shrink-0 flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 8, background: '#fff', border: '1px solid rgba(182,171,156,0.25)', overflow: 'hidden', padding: 3 }}>
+                        <div className="shrink-0 flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: 8, background: '#fff', border: '1px solid rgba(182,171,156,0.25)', overflow: 'hidden' }}>
                           {getChainLogoUrl(store.chain_name) ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                            <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           ) : (
                             <span className="text-xs font-bold" style={{ color: '#4F483F' }}>{store.chain_name.slice(0, 2)}</span>
                           )}
@@ -501,6 +549,14 @@ function ProductSheet({ item, onClose }: { item: ListItem; onClose: () => void }
 }
 
 // ── Swipeable row ─────────────────────────────────────────────────────────────
+// ── SwipeRow: native scroll-snap swipe ────────────────────────────────────────
+// Uses a horizontally scrollable container with scroll-snap so the browser
+// handles both X and Y axes natively — zero JS touch handling, zero conflicts.
+// Layout: [ACTION_RIGHT (100px)] [MAIN_CONTENT (100vw)] [ACTION_LEFT (100px)]
+// The container starts scrolled to MAIN_CONTENT (scrollLeft = ACTION_WIDTH).
+// On scrollend / scroll-idle: detect which panel is snapped → fire action.
+const ACTION_WIDTH = 80; // px — width of each action panel
+
 function SwipeRow({
   item,
   multiSelect,
@@ -512,6 +568,8 @@ function SwipeRow({
   onPressStart,
   onPressEnd,
   onTap,
+  outOfRange,
+  isScrollingRef,
 }: {
   item: ListItem;
   multiSelect: boolean;
@@ -523,221 +581,254 @@ function SwipeRow({
   onPressStart: () => void;
   onPressEnd: () => void;
   onTap: () => void;
+  outOfRange?: boolean;
+  isScrollingRef: React.RefObject<boolean>;
 }) {
-  const [offsetX, setOffsetX] = useState(0);
-  const startX = useRef<number | null>(null);
-  const isDragging = useRef(false);
-  const touchHandled = useRef(false); // prevent click from double-firing after touch
-  const rowRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const actionFiredRef = useRef(false);   // prevent double-firing
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const directionRef = useRef<'h' | 'v' | null>(null); // locked direction
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didMoveRef = useRef(false);
 
+  // Scroll to center (main content) on mount and after action
+  const resetScroll = useCallback((smooth = false) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ left: ACTION_WIDTH, behavior: smooth ? 'smooth' : 'instant' });
+    actionFiredRef.current = false;
+  }, []);
+
+  useEffect(() => { resetScroll(); }, [resetScroll]);
+
+  // Detect scroll-end and fire action based on final scroll position
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let idleTimer: ReturnType<typeof setTimeout>;
+
+    const onScroll = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        if (actionFiredRef.current) return;
+        const sl = el.scrollLeft;
+        if (sl < ACTION_WIDTH * 0.4) {
+          // Scrolled right → right action (RTL: check/toggle)
+          actionFiredRef.current = true;
+          onToggle();
+          resetScroll(true);
+        } else if (sl > ACTION_WIDTH * 1.6) {
+          // Scrolled left → left action (RTL: delete)
+          actionFiredRef.current = true;
+          onDelete();
+          resetScroll(true);
+        } else {
+          resetScroll(true);
+        }
+      }, 80);
+    };
+
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { el.removeEventListener('scroll', onScroll); clearTimeout(idleTimer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Long-press detection on the main content area
   const handleTouchStart = (e: React.TouchEvent) => {
-    startX.current = e.touches[0].clientX;
-    isDragging.current = false;
-    touchHandled.current = false;
-    onPressStart();
+    if (isScrollingRef.current) return;
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+    directionRef.current = null;
+    didMoveRef.current = false;
+    pressTimerRef.current = setTimeout(() => {
+      onPressStart();
+    }, LONG_PRESS_MS);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (startX.current === null) return;
-    const dx = e.touches[0].clientX - startX.current;
-    if (Math.abs(dx) > 8) {
-      isDragging.current = true;
-      onPressEnd(); // cancel long-press if swiping
+    const dx = Math.abs(e.touches[0].clientX - touchStartXRef.current);
+    const dy = Math.abs(e.touches[0].clientY - touchStartYRef.current);
+    if (directionRef.current === null && (dx > 5 || dy > 5)) {
+      directionRef.current = dx > dy ? 'h' : 'v';
     }
-    if (!isDragging.current) return;
-    // Clamp: right swipe (positive) = check/toggle, left swipe (negative) = delete
-    const clamped = Math.max(-SWIPE_MAX, Math.min(SWIPE_MAX, dx));
-    setOffsetX(clamped);
+    if (dx > 5 || dy > 5) {
+      didMoveRef.current = true;
+      if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
+      onPressEnd();
+    }
   };
 
   const handleTouchEnd = () => {
+    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
     onPressEnd();
-    touchHandled.current = true;
-    const wasDragging = isDragging.current;
-    if (offsetX > SWIPE_THRESHOLD) {
-      onToggle(); // swipe right → check/uncheck
-    } else if (offsetX < -SWIPE_THRESHOLD) {
-      onDelete(); // swipe left → delete
-    } else if (!wasDragging && !multiSelect) {
-      onTap(); // tap without swipe → open sheet
+    if (!didMoveRef.current && !multiSelect) {
+      onTap();
+    } else if (!didMoveRef.current && multiSelect) {
+      onToggleSelect();
     }
-    setOffsetX(0);
-    startX.current = null;
-    isDragging.current = false;
   };
 
-  const handleClick = () => {
-    // On touch devices, touchEnd already handled the tap — skip
-    if (touchHandled.current) { touchHandled.current = false; return; }
-    if (!multiSelect) onTap(); else onToggleSelect();
-  };
-
-  // Background color based on swipe direction (right=check/green, left=delete/red)
-  const bgRight = offsetX > 20 ? `rgba(45,122,45,${Math.min(0.7, offsetX / SWIPE_MAX)})` : 'transparent';
-  const bgLeft = offsetX < -20 ? `rgba(191,44,44,${Math.min(0.7, Math.abs(offsetX) / SWIPE_MAX)})` : 'transparent';
-
-  return (
+  const rowContent = (
     <div
-      className="relative"
-      style={{ borderRadius: 16 }}
+      className="flex items-center gap-0 select-none"
+      style={{
+        background: isSelected ? 'rgba(191,44,44,0.06)' : outOfRange ? 'rgba(220,215,210,0.7)' : 'rgba(255,255,255,0.82)',
+        borderRadius: 16,
+        opacity: item.checked ? 0.6 : outOfRange ? 0.65 : 1,
+        boxShadow: '0 1px 4px rgba(79,72,63,0.07)',
+        minWidth: '100%',
+        cursor: 'pointer',
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onClick={() => {
+        if (multiSelect) onToggleSelect();
+      }}
     >
-      {/* Right action bg (check) — only rendered while swiping right */}
-      {offsetX > 10 && (
-        <div
-          className="absolute inset-0 flex items-center justify-end overflow-hidden"
-          style={{ background: bgRight, borderRadius: 16, paddingRight: 32 }}
-        >
-          <Check size={22} color="white" />
-        </div>
-      )}
-      {/* Left action bg (delete) — only rendered while swiping left */}
-      {offsetX < -10 && (
-        <div
-          className="absolute inset-0 flex items-center justify-start overflow-hidden"
-          style={{ background: bgLeft, borderRadius: 16, paddingLeft: 32 }}
-        >
-          <Trash2 size={22} color="white" />
-        </div>
-      )}
-
-      {/* Row content */}
-      <div
-        ref={rowRef}
-        className="relative flex items-center gap-0 select-none"
-        style={{
-          transform: `translateX(${offsetX}px)`,
-          transition: offsetX === 0 ? 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
-          background: isSelected ? 'rgba(191,44,44,0.06)' : 'rgba(255,255,255,0.82)',
-          borderRadius: 16,
-          opacity: item.checked ? 0.6 : 1,
-          boxShadow: '0 1px 4px rgba(79,72,63,0.07)',
-          paddingBottom: 0,
-          cursor: 'pointer',
-        }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onClick={handleClick}
-        onPointerDown={!('ontouchstart' in window) ? onPressStart : undefined}
-        onPointerUp={!('ontouchstart' in window) ? onPressEnd : undefined}
-        onPointerLeave={!('ontouchstart' in window) ? onPressEnd : undefined}
-        onPointerCancel={!('ontouchstart' in window) ? onPressEnd : undefined}
-      >
-        {/* ── RIGHT SIDE: checkbox ── */}
-        <div className="flex items-center justify-center shrink-0" style={{ width: 44, alignSelf: 'stretch' }}>
-          {multiSelect ? (
-            <button onClick={e => { e.stopPropagation(); onToggleSelect(); }}>
-              {isSelected
-                ? <CheckSquare size={20} style={{ color: '#BF2C2C' }} />
-                : <Square size={20} style={{ color: '#C4BAB0' }} />}
-            </button>
-          ) : (
-            <button
-              onClick={e => { e.stopPropagation(); onToggle(); }}
-              className="flex items-center justify-center transition-all"
-              style={{
-                width: 24, height: 24, borderRadius: '50%',
-                border: item.checked ? 'none' : '2px solid #C4BAB0',
-                background: item.checked ? '#2d7a2d' : 'transparent',
-                flexShrink: 0,
-              }}
-            >
-              {item.checked && <Check size={12} color="white" />}
-            </button>
-          )}
-        </div>
-
-        {/* ── PRODUCT IMAGE: contained square ── */}
-        <div
-          className="shrink-0 my-2"
-          style={{
-            width: 56, height: 56, borderRadius: 12,
-            background: '#f5f0eb',
-            overflow: 'hidden',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <RowImage itemCode={item.item_code} name={item.item_name} groupId={item.group_id} />
-        </div>
-
-        {/* ── CENTER: name + subtitle ── */}
-        <div
-          className="flex-1 min-w-0 px-3 py-3"
-          onClick={multiSelect ? (e => { e.stopPropagation(); onToggleSelect(); }) : undefined}
-          style={multiSelect ? { cursor: 'pointer' } : undefined}
-        >
-          <p
-            className="font-bold text-sm leading-snug"
+      {/* ── RIGHT SIDE: checkbox ── */}
+      <div className="flex items-center justify-center shrink-0" style={{ width: 44, alignSelf: 'stretch' }}>
+        {multiSelect ? (
+          <button onClick={e => { e.stopPropagation(); onToggleSelect(); }}>
+            {isSelected
+              ? <CheckSquare size={20} style={{ color: '#BF2C2C' }} />
+              : <Square size={20} style={{ color: '#C4BAB0' }} />}
+          </button>
+        ) : (
+          <button
+            onClick={e => { e.stopPropagation(); onToggle(); }}
+            className="flex items-center justify-center transition-all"
             style={{
-              color: '#3a342c',
-              fontFamily: 'Heebo, sans-serif',
-              textDecoration: item.checked ? 'line-through' : 'none',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
+              width: 24, height: 24, borderRadius: '50%',
+              border: item.checked ? 'none' : '2px solid #C4BAB0',
+              background: item.checked ? '#2d7a2d' : 'transparent',
+              flexShrink: 0,
             }}
           >
-            {item.item_name}
-          </p>
-          {!multiSelect && (
-            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-              {item.group_id ? (
-                <>
-                  <span
-                    className="inline-flex items-center text-xs font-bold px-1.5 py-0.5 rounded-md"
-                    style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', fontSize: 10 }}
-                  >
-                    ✦ מוצר חכם
-                  </span>
-                  <GroupPriceRange groupId={item.group_id} />
-                </>
-              ) : (
-                <PriceRange itemCode={item.item_code} />
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ── LEFT SIDE: quantity stepper (horizontal row) ── */}
-        {!multiSelect && !item.checked && (
-          <div className="flex items-center shrink-0 pr-3 py-2" style={{ paddingLeft: 12 }}>
-            <div
-              className="flex items-center"
-              style={{
-                background: 'rgba(182,171,156,0.2)',
-                borderRadius: 10,
-                border: '1px solid rgba(182,171,156,0.4)',
-                overflow: 'hidden',
-              }}
-            >
-              <button
-                onClick={e => { e.stopPropagation(); onUpdateQty(item.quantity - 1); }}
-                className="flex items-center justify-center font-bold"
-                style={{ width: 26, height: 26, color: '#6b6259', fontSize: 15 }}
-              >
-                −
-              </button>
-              <span
-                className="text-xs font-bold text-center"
-                style={{ minWidth: 18, color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}
-              >
-                {item.quantity}
-              </span>
-              <button
-                onClick={e => { e.stopPropagation(); onUpdateQty(item.quantity + 1); }}
-                className="flex items-center justify-center font-bold"
-                style={{ width: 26, height: 26, color: '#6b6259', fontSize: 15 }}
-              >
-                +
-              </button>
-            </div>
-          </div>
+            {item.checked && <Check size={12} color="white" />}
+          </button>
         )}
-
       </div>
 
-      {/* ── TRASH: circle sitting on top-left corner edge (half in, half out) ── */}
+      {/* ── PRODUCT IMAGE ── */}
+      <div
+        className="shrink-0 my-2"
+        style={{
+          width: 56, height: 56, borderRadius: 12,
+          background: '#f5f0eb', overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <RowImage itemCode={item.item_code} name={item.item_name} groupId={item.group_id} />
+      </div>
+
+      {/* ── CENTER: name + subtitle ── */}
+      <div className="flex-1 min-w-0 px-3 py-3">
+        <p
+          className="font-bold text-sm leading-snug"
+          style={{
+            color: '#3a342c', fontFamily: 'Heebo, sans-serif',
+            textDecoration: item.checked ? 'line-through' : 'none',
+            display: '-webkit-box', WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical', overflow: 'hidden',
+          }}
+        >
+          {item.item_name}
+        </p>
+        {!multiSelect && (
+          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+            {outOfRange ? (
+              <span className="inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-md"
+                style={{ background: 'rgba(182,171,156,0.25)', color: '#8a7f75', fontSize: 10 }}>
+                <MapPin size={9} />מוצר לא בטווח הקנייה
+              </span>
+            ) : item.group_id ? (
+              <>
+                <span className="inline-flex items-center text-xs font-bold px-1.5 py-0.5 rounded-md"
+                  style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', fontSize: 10 }}>
+                  ✦ מוצר חכם
+                </span>
+                <GroupPriceRange groupId={item.group_id} />
+              </>
+            ) : (
+              <PriceRange itemCode={item.item_code} />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── LEFT SIDE: quantity stepper ── */}
+      {!multiSelect && !item.checked && (
+        <div className="flex items-center shrink-0 pr-3 py-2" style={{ paddingLeft: 12 }}>
+          <div className="flex items-center"
+            style={{ background: 'rgba(182,171,156,0.2)', borderRadius: 10, border: '1px solid rgba(182,171,156,0.4)', overflow: 'hidden' }}>
+            <button onClick={e => { e.stopPropagation(); onUpdateQty(item.quantity - 1); }}
+              className="flex items-center justify-center font-bold"
+              style={{ width: 26, height: 26, color: '#6b6259', fontSize: 15 }}>−</button>
+            <span className="text-xs font-bold text-center"
+              style={{ minWidth: 18, color: '#3a342c', fontFamily: 'Heebo, sans-serif' }}>
+              {item.quantity}
+            </span>
+            <button onClick={e => { e.stopPropagation(); onUpdateQty(item.quantity + 1); }}
+              className="flex items-center justify-center font-bold"
+              style={{ width: 26, height: 26, color: '#6b6259', fontSize: 15 }}>+</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="relative" style={{ borderRadius: 16 }}>
+      {/* Horizontally scrollable snap container — browser handles X/Y natively */}
+      <div
+        ref={scrollRef}
+        style={{
+          display: 'flex',
+          overflowX: 'scroll',
+          overflowY: 'hidden',
+          scrollSnapType: 'x mandatory',
+          scrollbarWidth: 'none',
+          borderRadius: 16,
+          // Hide webkit scrollbar
+          WebkitOverflowScrolling: 'touch',
+        }}
+        className="[&::-webkit-scrollbar]:hidden"
+      >
+        {/* RIGHT action panel (swipe right = check/toggle) */}
+        <div
+          style={{
+            minWidth: ACTION_WIDTH, width: ACTION_WIDTH,
+            scrollSnapAlign: 'start',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(45,122,45,0.85)', borderRadius: '16px 0 0 16px',
+            flexShrink: 0,
+          }}
+        >
+          <Check size={24} color="white" />
+        </div>
+
+        {/* MAIN content panel */}
+        <div style={{ minWidth: '100%', scrollSnapAlign: 'start', flexShrink: 0 }}>
+          {rowContent}
+        </div>
+
+        {/* LEFT action panel (swipe left = delete) */}
+        <div
+          style={{
+            minWidth: ACTION_WIDTH, width: ACTION_WIDTH,
+            scrollSnapAlign: 'start',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(191,44,44,0.85)', borderRadius: '0 16px 16px 0',
+            flexShrink: 0,
+          }}
+        >
+          <Trash2 size={24} color="white" />
+        </div>
+      </div>
+
+      {/* ── TRASH button: absolute circle on top-left corner ── */}
       {!multiSelect && (
         <button
           onClick={e => { e.stopPropagation(); onDelete(); }}
@@ -747,8 +838,7 @@ function SwipeRow({
             transform: 'translate(-50%, -50%)',
             width: 24, height: 24,
             borderRadius: '50%',
-            background: '#BF2C2C',
-            color: '#fff',
+            background: '#BF2C2C', color: '#fff',
             boxShadow: '0 1px 4px rgba(191,44,44,0.35)',
           }}
         >
@@ -764,6 +854,7 @@ export default function ShoppingListPage() {
   const [items, setItems] = useState<ListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<{ id: string } | null>(null);
+  const [outOfRangeIds, setOutOfRangeIds] = useState<Set<string>>(new Set());
 
   // Multi-select state
   const [multiSelect, setMultiSelect] = useState(false);
@@ -773,6 +864,24 @@ export default function ShoppingListPage() {
 
   // Long-press refs per item
   const pressTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Scroll state: true while the page is actively scrolling (debounced 150 ms after last scroll event)
+  const isScrollingRef = useRef<boolean>(false);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const onScroll = () => {
+      isScrollingRef.current = true;
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current = setTimeout(() => {
+        isScrollingRef.current = false;
+      }, 150);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -792,6 +901,24 @@ export default function ShoppingListPage() {
     if (!error && data) setItems(data);
     setLoading(false);
   };
+
+  const checkRangeForItems = useCallback(async (itemList: ListItem[]) => {
+    const loc = await getUserLocation();
+    if (!loc) return; // No location saved → skip check
+    const outIds = await findOutOfRangeItemIds(itemList, loc.lat, loc.lng);
+    setOutOfRangeIds(outIds);
+  }, []);
+
+  // Only re-check range when the set of item_codes changes (not on check/qty updates)
+  const itemCodesKey = useMemo(
+    () => items.map(i => i.item_code).sort().join(','),
+    [items],
+  );
+  useEffect(() => {
+    if (items.length > 0) checkRangeForItems(items);
+    else setOutOfRangeIds(new Set());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemCodesKey, checkRangeForItems]);
 
   const toggleItem = async (item: ListItem) => {
     if (multiSelect) { toggleSelect(item.id); return; }
@@ -967,6 +1094,8 @@ export default function ShoppingListPage() {
                     onPressStart={() => handlePressStart(item.id)}
                     onPressEnd={() => handlePressEnd(item.id)}
                     onTap={() => item.group_id ? setSelectedGroup(item) : setSelectedItem(item)}
+                    outOfRange={outOfRangeIds.has(item.id)}
+                    isScrollingRef={isScrollingRef}
                   />
                 ))}
               </div>
@@ -992,6 +1121,8 @@ export default function ShoppingListPage() {
                     onPressStart={() => handlePressStart(item.id)}
                     onPressEnd={() => handlePressEnd(item.id)}
                     onTap={() => item.group_id ? setSelectedGroup(item) : setSelectedItem(item)}
+                    outOfRange={outOfRangeIds.has(item.id)}
+                    isScrollingRef={isScrollingRef}
                   />
                 ))}
               </div>

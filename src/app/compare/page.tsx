@@ -255,35 +255,71 @@ function StoreCard({
   const coveragePct = Math.round((store.products_found / totalItems) * 100);
   const isTop = rank === 1;
 
+  // Rank medal colors: gold / silver / bronze / plain
+  const medalColors: Record<number, { bg: string; text: string; border: string; shadow: string }> = {
+    1: { bg: 'linear-gradient(135deg, #f5c842 0%, #e8a800 60%, #f5c842 100%)', text: '#7a5500', border: 'rgba(229,168,0,0.7)', shadow: '0 0 18px 2px rgba(229,168,0,0.35)' },
+    2: { bg: 'linear-gradient(135deg, #d8d8d8 0%, #b0b0b0 60%, #d8d8d8 100%)', text: '#4a4a4a', border: 'rgba(160,160,160,0.6)', shadow: 'none' },
+    3: { bg: 'linear-gradient(135deg, #e8a87c 0%, #c47a3a 60%, #e8a87c 100%)', text: '#5a2e00', border: 'rgba(180,100,40,0.5)', shadow: 'none' },
+  };
+  const medal = medalColors[rank] ?? { bg: '#e8e0d8', text: '#8a7f75', border: 'rgba(182,171,156,0.4)', shadow: 'none' };
+
   return (
     <>
       <div
         className="rounded-3xl overflow-hidden"
         style={{
-          background: isTop ? 'rgba(45,122,45,0.08)' : 'rgba(233,216,197,0.85)',
-          border: isTop ? '2px solid rgba(45,122,45,0.35)' : '1.5px solid rgba(182,171,156,0.5)',
+          background: isTop ? 'rgba(245,200,66,0.07)' : 'rgba(233,216,197,0.85)',
+          border: isTop ? `2px solid ${medal.border}` : '1.5px solid rgba(182,171,156,0.5)',
+          boxShadow: isTop ? medal.shadow : 'none',
         }}
       >
         {/* Header */}
         <button className="w-full flex items-center gap-3 p-4 text-right" onClick={() => setOpen(o => !o)}>
+
+          {/* Rank medal badge */}
           <div
-            className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
-            style={{ background: isTop ? '#2d7a2d' : rank === 2 ? '#5a8a2d' : '#8a7f75', color: 'white' }}
+            className="shrink-0 flex items-center justify-center font-bold text-sm"
+            style={{
+              width: 34, height: 34, borderRadius: '50%',
+              background: medal.bg,
+              color: medal.text,
+              boxShadow: rank <= 3 ? `0 2px 6px ${medal.border}` : 'none',
+              flexShrink: 0,
+              fontSize: rank === 1 ? 15 : 13,
+            }}
           >
-            {rank}
+            {rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank}
           </div>
+
+          {/* Store info */}
           <div className="flex-1 min-w-0 text-right">
+            {/* Top row: logo + store name */}
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
               {getChainLogoUrl(store.chain_name) ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name} style={{ height: 18, maxWidth: 56, objectFit: 'contain' }} />
+                <div className="shrink-0" style={{
+                  width: 48, height: 30, borderRadius: 8,
+                  overflow: 'hidden', background: '#fff',
+                  border: '1px solid rgba(182,171,156,0.25)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
               ) : (
                 <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(182,171,156,0.3)', color: '#8a7f75' }}>
                   {store.chain_name}
                 </span>
               )}
+              <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
+              {isTop && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: 'linear-gradient(90deg,#f5c842,#e8a800)', color: '#7a5500', letterSpacing: 0.3 }}>
+                  הכי זול! 🏆
+                </span>
+              )}
             </div>
+            {/* Bottom row: distance + coverage */}
             <div className="flex items-center gap-3 mt-0.5 flex-wrap">
               <span className="text-xs" style={{ color: '#8a7f75' }}>📍 {store.distance_km.toFixed(1)} ק&quot;מ</span>
               <span className="text-xs font-medium" style={{ color: store.products_missing > 0 ? '#b85c00' : '#2d7a2d' }}>
@@ -294,8 +330,10 @@ function StoreCard({
               )}
             </div>
           </div>
+
+          {/* Price */}
           <div className="shrink-0 text-right">
-            <p className="font-bold text-base" style={{ color: isTop ? '#2d7a2d' : '#4F483F' }}>₪{store.total_price.toFixed(2)}</p>
+            <p className="font-bold text-base" style={{ color: isTop ? '#b07800' : '#4F483F' }}>₪{store.total_price.toFixed(2)}</p>
             <p className="text-xs" style={{ color: '#8a7f75' }}>לפריטים שנמצאו</p>
           </div>
           <div style={{ color: '#8a7f75', flexShrink: 0 }}>

@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Search, X, ChevronLeft, ScanBarcode, ShoppingCart } from 'lucide-react';
-import { searchProductsIndex, fetchAllGroupItemCodes, isValidManufacturerName, formatUnitInfo, getProductByItemCode, IndexProduct, formatLastUpdated } from '@/lib/typesense';
+import { Search, X, ChevronLeft, ScanBarcode, ShoppingCart, MapPin } from 'lucide-react';
+import { searchProductsIndex, fetchAllGroupItemCodes, isValidManufacturerName, formatUnitInfo, getProductByItemCode, IndexProduct, formatLastUpdated, CHAIN_COLLECTIONS } from '@/lib/typesense';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { supabase } from '@/lib/supabase';
+import { getUserLocation } from '@/lib/location';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -17,6 +18,79 @@ type ProductGroup = {
   name: string;
   image_item_code: string | null;
 };
+
+/**
+ * Given a user location, returns the set of chain_ids that have at least one
+ * store within radius_km. Returns null if no location or request fails.
+ */
+async function getNearbyChainIds(lat: number, lng: number, radius_km = 15): Promise<Set<string> | null> {
+  try {
+    const params = new URLSearchParams({
+      collection: 'stores',
+      q: '*',
+      query_by: 'store_name',
+      filter_by: `location:(${lat},${lng},${radius_km} km)`,
+      per_page: '250',
+      facet_by: 'chain_id',
+      max_facet_values: '50',
+    });
+    const res = await fetch(`/api/search?${params}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const facet = data.facet_counts?.find((f: { field_name: string }) => f.field_name === 'chain_id');
+    if (!facet?.counts?.length) return null;
+    return new Set<string>(facet.counts.map((c: { value: string }) => c.value));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Given a set of nearby chain IDs and a list of item_codes, returns the subset
+ * of item_codes that are available in at least one nearby chain.
+ * Uses batch search (filter_by item_code:[...]) per chain to minimize requests.
+ */
+async function filterItemCodesByNearbyChains(
+  itemCodes: string[],
+  nearbyChainIds: Set<string>,
+): Promise<Set<string>> {
+  if (itemCodes.length === 0 || nearbyChainIds.size === 0) return new Set(itemCodes);
+
+  const nearbyCollections = CHAIN_COLLECTIONS.filter(col => {
+    const chainId = col.replace('products_', '');
+    return nearbyChainIds.has(chainId);
+  });
+
+  if (nearbyCollections.length === 0) return new Set(itemCodes);
+
+  const found = new Set<string>();
+  const codeList = itemCodes.join(',');
+
+  await Promise.all(
+    nearbyCollections.map(async (collection) => {
+      try {
+        const params = new URLSearchParams({
+          collection,
+          q: '*',
+          query_by: 'item_name',
+          filter_by: `item_code:[${codeList}]`,
+          per_page: '250',
+          facet_by: 'item_code',
+          max_facet_values: '250',
+        });
+        const res = await fetch(`/api/search?${params}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const facet = data.facet_counts?.find((f: { field_name: string }) => f.field_name === 'item_code');
+        for (const c of (facet?.counts || [])) {
+          found.add(c.value);
+        }
+      } catch { /* skip */ }
+    })
+  );
+
+  return found;
+}
 
 // ── Product image with local-first + CDN fallback ────────────────────────────
 function ProductImage({ itemCode, name, size = 64 }: { itemCode: string; name: string; size?: number }) {
@@ -116,7 +190,11 @@ export default function SearchPage() {
   const [allGroups, setAllGroups] = useState<ProductGroup[]>([]);
   const [matchingGroups, setMatchingGroups] = useState<ProductGroup[]>([]);
 
-  // Load group item codes + all groups on mount
+  // Location-based filtering
+  const nearbyChainIdsRef = useRef<Set<string> | null>(null); // null = not loaded yet; empty Set = no location
+  const [locationLabel, setLocationLabel] = useState<string | null>(null);
+
+  // Load group item codes + all groups + nearby chains on mount
   useEffect(() => {
     fetchAllGroupItemCodes().then(codes => {
       groupItemCodesRef.current = codes;
@@ -128,6 +206,17 @@ export default function SearchPage() {
       .then(({ data }) => {
         if (data) setAllGroups(data as ProductGroup[]);
       });
+
+    // Load user location and nearby chain IDs
+    getUserLocation().then(async (loc) => {
+      if (!loc) {
+        nearbyChainIdsRef.current = new Set(); // no location → no filtering
+        return;
+      }
+      setLocationLabel(loc.label);
+      const chainIds = await getNearbyChainIds(loc.lat, loc.lng);
+      nearbyChainIdsRef.current = chainIds ?? new Set();
+    });
   }, []);
 
   const handleSearch = useCallback(async (q: string) => {
@@ -151,8 +240,19 @@ export default function SearchPage() {
 
     try {
       const { hits, found } = await searchProductsIndex(q, { perPage: 30, groupItemCodes: groupItemCodesRef.current });
-      setResults(hits);
-      setFound(found);
+
+      // If we have nearby chain IDs, filter results to only those available nearby
+      const nearbyChainIds = nearbyChainIdsRef.current;
+      if (nearbyChainIds && nearbyChainIds.size > 0) {
+        const itemCodes = hits.map((h: IndexProduct) => h.item_code);
+        const availableCodes = await filterItemCodesByNearbyChains(itemCodes, nearbyChainIds);
+        const filtered = hits.filter((h: IndexProduct) => availableCodes.has(h.item_code));
+        setResults(filtered);
+        setFound(filtered.length);
+      } else {
+        setResults(hits);
+        setFound(found);
+      }
     } catch (err) {
       console.error(err);
       toast.error('שגיאה בחיפוש');
@@ -279,6 +379,17 @@ export default function SearchPage() {
             </div>
           )}
         </div>
+
+        {/* Location filter indicator */}
+        {locationLabel && (
+          <div
+            className="flex items-center gap-1.5 mb-3 px-3 py-1.5 rounded-xl self-start text-xs font-medium"
+            style={{ background: 'rgba(45,122,45,0.1)', color: '#2d7a2d', display: 'inline-flex' }}
+          >
+            <MapPin size={12} />
+            מציג מוצרים זמינים ב{locationLabel}
+          </div>
+        )}
 
         {/* Barcode scanner overlay */}
         {showScanner && (

@@ -541,7 +541,7 @@ export default function ShoppingListPage() {
             {/* Unchecked items */}
             {unchecked.length > 0 && (
               <div
-                className="rounded-2xl p-3 mb-4 flex flex-col gap-1.5"
+                className="rounded-2xl p-3 mb-4 flex flex-col gap-3"
                 style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.4)', overflow: 'visible', paddingTop: 16 }}
               >
                 {unchecked.map(item => (
@@ -564,7 +564,7 @@ export default function ShoppingListPage() {
             {/* Checked items */}
             {checked.length > 0 && (
               <div
-                className="rounded-2xl p-3 flex flex-col gap-1.5 opacity-65"
+                className="rounded-2xl p-3 flex flex-col gap-3 opacity-65"
                 style={{ background: 'rgba(233,216,197,0.6)', border: '1.5px solid rgba(182,171,156,0.3)', overflow: 'visible', paddingTop: 16 }}
               >
                 <p className="text-xs font-medium px-1 mb-1" style={{ color: '#8a7f75' }}>נרכשו ({checked.length})</p>

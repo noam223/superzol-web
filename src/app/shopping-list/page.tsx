@@ -473,11 +473,13 @@ function SwipeRow({
   const [offsetX, setOffsetX] = useState(0);
   const startX = useRef<number | null>(null);
   const isDragging = useRef(false);
+  const touchHandled = useRef(false); // prevent click from double-firing after touch
   const rowRef = useRef<HTMLDivElement>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     startX.current = e.touches[0].clientX;
     isDragging.current = false;
+    touchHandled.current = false;
     onPressStart();
   };
 
@@ -496,6 +498,7 @@ function SwipeRow({
 
   const handleTouchEnd = () => {
     onPressEnd();
+    touchHandled.current = true;
     const wasDragging = isDragging.current;
     if (offsetX > SWIPE_THRESHOLD) {
       onToggle(); // swipe right → check/uncheck
@@ -507,6 +510,12 @@ function SwipeRow({
     setOffsetX(0);
     startX.current = null;
     isDragging.current = false;
+  };
+
+  const handleClick = () => {
+    // On touch devices, touchEnd already handled the tap — skip
+    if (touchHandled.current) { touchHandled.current = false; return; }
+    if (!multiSelect) onTap(); else onToggleSelect();
   };
 
   // Background color based on swipe direction (right=check/green, left=delete/red)
@@ -549,10 +558,12 @@ function SwipeRow({
           opacity: item.checked ? 0.6 : 1,
           boxShadow: '0 1px 4px rgba(79,72,63,0.07)',
           paddingBottom: 0,
+          cursor: 'pointer',
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onClick={handleClick}
         onPointerDown={!('ontouchstart' in window) ? onPressStart : undefined}
         onPointerUp={!('ontouchstart' in window) ? onPressEnd : undefined}
         onPointerLeave={!('ontouchstart' in window) ? onPressEnd : undefined}
@@ -561,14 +572,14 @@ function SwipeRow({
         {/* ── RIGHT SIDE: checkbox ── */}
         <div className="flex items-center justify-center shrink-0" style={{ width: 44, alignSelf: 'stretch' }}>
           {multiSelect ? (
-            <button onClick={onToggleSelect}>
+            <button onClick={e => { e.stopPropagation(); onToggleSelect(); }}>
               {isSelected
                 ? <CheckSquare size={20} style={{ color: '#BF2C2C' }} />
                 : <Square size={20} style={{ color: '#C4BAB0' }} />}
             </button>
           ) : (
             <button
-              onClick={onToggle}
+              onClick={e => { e.stopPropagation(); onToggle(); }}
               className="flex items-center justify-center transition-all"
               style={{
                 width: 24, height: 24, borderRadius: '50%',
@@ -598,7 +609,7 @@ function SwipeRow({
         {/* ── CENTER: name + subtitle ── */}
         <div
           className="flex-1 min-w-0 px-3 py-3"
-          onClick={multiSelect ? onToggleSelect : undefined}
+          onClick={multiSelect ? (e => { e.stopPropagation(); onToggleSelect(); }) : undefined}
           style={multiSelect ? { cursor: 'pointer' } : undefined}
         >
           <p
@@ -617,13 +628,7 @@ function SwipeRow({
           </p>
           {!multiSelect && (
             <div className="mt-1">
-              {item.group_id ? (
-                <span className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: '#B6AB9C' }}>
-                  📦 קבוצת מוצרים
-                </span>
-              ) : (
-                <PriceRange itemCode={item.item_code} />
-              )}
+              <PriceRange itemCode={item.group_id ? (item.image_item_code ?? '') : item.item_code} />
             </div>
           )}
         </div>
@@ -641,7 +646,7 @@ function SwipeRow({
               }}
             >
               <button
-                onClick={() => onUpdateQty(item.quantity - 1)}
+                onClick={e => { e.stopPropagation(); onUpdateQty(item.quantity - 1); }}
                 className="flex items-center justify-center font-bold"
                 style={{ width: 26, height: 26, color: '#6b6259', fontSize: 15 }}
               >
@@ -654,7 +659,7 @@ function SwipeRow({
                 {item.quantity}
               </span>
               <button
-                onClick={() => onUpdateQty(item.quantity + 1)}
+                onClick={e => { e.stopPropagation(); onUpdateQty(item.quantity + 1); }}
                 className="flex items-center justify-center font-bold"
                 style={{ width: 26, height: 26, color: '#6b6259', fontSize: 15 }}
               >
@@ -669,7 +674,7 @@ function SwipeRow({
       {/* ── TRASH: circle sitting on top-left corner edge (half in, half out) ── */}
       {!multiSelect && (
         <button
-          onClick={onDelete}
+          onClick={e => { e.stopPropagation(); onDelete(); }}
           className="absolute flex items-center justify-center z-10"
           style={{
             top: 0, left: 0,

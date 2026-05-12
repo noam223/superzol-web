@@ -319,9 +319,9 @@ function StoreCard({
                   border: item.found ? '1px solid rgba(182,171,156,0.25)' : '1px solid rgba(191,44,44,0.2)',
                 }}
               >
-                {/* Image: use resolved item_code when found, group image_item_code when not found */}
+                {/* Image: for group items use image_item_code; for regular items use item_code */}
                 <ProductImg
-                  itemCode={item.found ? item.item_code : (item.image_item_code || '')}
+                  itemCode={item.group_label ? (item.image_item_code || item.item_code) : item.item_code}
                   name={item.group_label || item.item_name}
                   size={36}
                 />

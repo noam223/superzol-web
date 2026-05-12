@@ -275,45 +275,47 @@ function StoreCard({
         {/* Header */}
         <button className="w-full flex items-center gap-3 p-4 text-right" onClick={() => setOpen(o => !o)}>
 
-          {/* Rank medal badge */}
-          <div
-            className="shrink-0 flex items-center justify-center font-bold"
-            style={{
-              width: 34, height: 34, borderRadius: '50%',
-              background: medal.bg,
-              color: medal.text,
-              boxShadow: rank <= 3 ? `0 2px 6px ${medal.border}` : 'none',
-              flexShrink: 0,
-              fontSize: 15,
-            }}
-          >
-            {rank}
+          {/* Left column: rank badge + logo stacked */}
+          <div className="shrink-0 flex flex-col items-center gap-1.5">
+            {/* Rank medal badge */}
+            <div
+              className="flex items-center justify-center font-bold"
+              style={{
+                width: 34, height: 34, borderRadius: '50%',
+                background: medal.bg,
+                color: medal.text,
+                boxShadow: rank <= 3 ? `0 2px 6px ${medal.border}` : 'none',
+                fontSize: 15,
+              }}
+            >
+              {rank}
+            </div>
+            {/* Chain logo below rank */}
+            {getChainLogoUrl(store.chain_name) ? (
+              <div style={{
+                width: 44, height: 28, borderRadius: 7,
+                overflow: 'hidden', background: '#fff',
+                border: '1px solid rgba(182,171,156,0.25)',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+              }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+            ) : (
+              <span className="text-xs px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(182,171,156,0.3)', color: '#8a7f75', fontSize: 9 }}>
+                {store.chain_name}
+              </span>
+            )}
           </div>
 
           {/* Store info */}
           <div className="flex-1 min-w-0 text-right">
-            {/* Top row: logo + store name */}
+            {/* Top row: store name + "הכי זול" badge */}
             <div className="flex items-center gap-2 flex-wrap">
-              {getChainLogoUrl(store.chain_name) ? (
-                <div className="shrink-0 flex items-center justify-center" style={{
-                  width: 52, height: 32, borderRadius: 8,
-                  overflow: 'hidden', background: '#fff',
-                  border: '1px solid rgba(182,171,156,0.25)',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                  padding: 3,
-                }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                </div>
-              ) : (
-                <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(182,171,156,0.3)', color: '#8a7f75' }}>
-                  {store.chain_name}
-                </span>
-              )}
               <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
               {isTop && (
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                <span className="animate-cheapest-badge text-xs font-bold px-2 py-0.5 rounded-full"
                   style={{ background: 'linear-gradient(90deg,#f5c842,#e8a800)', color: '#7a5500', letterSpacing: 0.3 }}>
                   הכי זול! 🏆
                 </span>

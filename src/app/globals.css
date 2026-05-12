@@ -39,6 +39,16 @@ body {
   animation: goldShimmer 2.4s ease-in-out infinite;
 }
 
+/* ─── "הכי זול" badge pulse ──────────────────────────────── */
+@keyframes cheapestPulse {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%       { transform: scale(1.07); opacity: 0.88; }
+}
+.animate-cheapest-badge {
+  animation: cheapestPulse 1.8s ease-in-out infinite;
+  display: inline-flex;
+}
+
 /* ─── Animations ─────────────────────────────────────────── */
 
 /* Fire icon pulse — matches FlutterFlow TintEffect loop */

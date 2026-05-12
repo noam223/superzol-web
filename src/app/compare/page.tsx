@@ -710,7 +710,12 @@ export default function ComparePage() {
       })
     );
 
-    setStores(updatedStores);
+    // Re-sort by same logic as API: most found first, then lowest price
+    const sortedStores = [...updatedStores].sort((a, b) => {
+      if (b.products_found !== a.products_found) return b.products_found - a.products_found;
+      return a.total_price - b.total_price;
+    });
+    setStores(sortedStores);
 
     // Persist replacement to Supabase shopping_list_items
     const userId = userIdRef.current;

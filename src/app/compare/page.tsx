@@ -291,6 +291,7 @@ function StoreCard({
             </div>
             {getChainLogoUrl(store.chain_name) ? (
               <div style={{ width: 44, height: 28, borderRadius: 7, overflow: 'hidden', background: '#fff', border: '1px solid rgba(182,171,156,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </div>

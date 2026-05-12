@@ -57,6 +57,38 @@ function ProductImage({ itemCode, name, size = 52 }: { itemCode: string; name: s
   );
 }
 
+// ── Row image (fills full height, cover fit) ──────────────────────────────────
+function RowImage({ itemCode, name }: { itemCode: string; name: string }) {
+  const [src, setSrc] = useState(() => itemCode && itemCode !== 'group' ? getProductImageUrl(itemCode) : '');
+  const [failed, setFailed] = useState(!itemCode || itemCode === 'group');
+
+  const handleError = () => {
+    if (itemCode && src === getProductImageUrl(itemCode)) {
+      setSrc(getProductImageFallback(itemCode));
+    } else {
+      setFailed(true);
+    }
+  };
+
+  if (failed || !itemCode || itemCode === 'group') {
+    return (
+      <div className="self-stretch shrink-0" style={{ width: 64, background: 'linear-gradient(135deg,#f0e8e0,#e8ddd5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>
+        {itemCode === 'group' ? '📦' : '🛒'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="self-stretch shrink-0" style={{ width: 64, overflow: 'hidden' }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src} alt={name} onError={handleError}
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      />
+    </div>
+  );
+}
+
 // ── Swipeable row ─────────────────────────────────────────────────────────────
 function SwipeRow({
   item,
@@ -146,13 +178,14 @@ function SwipeRow({
       {/* Row content */}
       <div
         ref={rowRef}
-        className="relative flex items-center gap-3 px-3 py-3.5 select-none"
+        className="relative flex items-center select-none overflow-hidden"
         style={{
           transform: `translateX(${offsetX}px)`,
           transition: offsetX === 0 ? 'transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
           background: isSelected ? 'rgba(191,44,44,0.07)' : 'rgba(255,255,255,0.7)',
           borderRadius: 16,
           opacity: item.checked ? 0.65 : 1,
+          minHeight: 72,
         }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -162,30 +195,35 @@ function SwipeRow({
         onPointerLeave={!('ontouchstart' in window) ? onPressEnd : undefined}
         onPointerCancel={!('ontouchstart' in window) ? onPressEnd : undefined}
       >
-        {/* Checkbox / check button */}
-        {multiSelect ? (
-          <button onClick={onToggleSelect} className="shrink-0">
-            {isSelected
-              ? <CheckSquare size={22} style={{ color: '#BF2C2C' }} />
-              : <Square size={22} style={{ color: '#B6AB9C' }} />}
-          </button>
-        ) : (
-          <button
-            onClick={onToggle}
-            className="shrink-0 flex items-center justify-center transition-all"
-            style={{
-              width: 26, height: 26, borderRadius: '50%',
-              border: item.checked ? 'none' : '2px solid #B6AB9C',
-              background: item.checked ? '#2d7a2d' : 'transparent',
-            }}
-          >
-            {item.checked && <Check size={13} color="white" />}
-          </button>
-        )}
+        {/* Checkbox / check button — right edge */}
+        <div className="flex items-center justify-center px-3 self-stretch">
+          {multiSelect ? (
+            <button onClick={onToggleSelect} className="shrink-0">
+              {isSelected
+                ? <CheckSquare size={22} style={{ color: '#BF2C2C' }} />
+                : <Square size={22} style={{ color: '#B6AB9C' }} />}
+            </button>
+          ) : (
+            <button
+              onClick={onToggle}
+              className="shrink-0 flex items-center justify-center transition-all"
+              style={{
+                width: 26, height: 26, borderRadius: '50%',
+                border: item.checked ? 'none' : '2px solid #B6AB9C',
+                background: item.checked ? '#2d7a2d' : 'transparent',
+              }}
+            >
+              {item.checked && <Check size={13} color="white" />}
+            </button>
+          )}
+        </div>
+
+        {/* Product image — fills full row height */}
+        <RowImage itemCode={item.item_code} name={item.item_name} />
 
         {/* Name + subtitle */}
         <div
-          className="flex-1 min-w-0"
+          className="flex-1 min-w-0 py-3 px-2"
           onClick={multiSelect ? onToggleSelect : undefined}
           style={multiSelect ? { cursor: 'pointer' } : undefined}
         >
@@ -210,34 +248,48 @@ function SwipeRow({
                 השווה מחירים
               </Link>
             ) : (
-              <p className="text-xs mt-0.5" style={{ color: '#B6AB9C' }}>{item.item_code}</p>
+              <p className="text-xs mt-0.5 truncate" style={{ color: '#B6AB9C' }}>{item.item_code}</p>
             )
           )}
         </div>
 
-        {/* Quantity controls — hidden in multi-select or checked */}
+        {/* Quantity controls in capsule — hidden in multi-select or checked */}
         {!multiSelect && !item.checked && (
-          <div className="flex flex-col items-center gap-0.5 shrink-0">
+          <div
+            className="flex flex-col items-center shrink-0 mx-2"
+            style={{
+              background: 'rgba(182,171,156,0.18)',
+              borderRadius: 20,
+              padding: '4px 2px',
+              border: '1px solid rgba(182,171,156,0.35)',
+            }}
+          >
             <button
               onClick={() => onUpdateQty(item.quantity + 1)}
-              className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-base"
-              style={{ background: 'rgba(182,171,156,0.3)', color: '#4F483F' }}
+              className="w-7 h-7 flex items-center justify-center font-bold text-base"
+              style={{ color: '#4F483F' }}
             >
               +
             </button>
             <span className="w-6 text-center text-sm font-semibold leading-none" style={{ color: '#4F483F' }}>{item.quantity}</span>
             <button
               onClick={() => onUpdateQty(item.quantity - 1)}
-              className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-base"
-              style={{ background: 'rgba(182,171,156,0.3)', color: '#4F483F' }}
+              className="w-7 h-7 flex items-center justify-center font-bold text-base"
+              style={{ color: '#4F483F' }}
             >
               −
             </button>
           </div>
         )}
 
-        {/* Product image */}
-        <ProductImage itemCode={item.item_code} name={item.item_name} size={48} />
+        {/* Permanent trash icon — left edge */}
+        <button
+          onClick={onDelete}
+          className="flex items-center justify-center self-stretch px-3 shrink-0"
+          style={{ color: 'rgba(191,44,44,0.45)' }}
+        >
+          <Trash2 size={18} />
+        </button>
       </div>
     </div>
   );

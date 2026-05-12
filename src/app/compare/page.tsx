@@ -537,12 +537,14 @@ export default function ComparePage() {
   const [compared, setCompared] = useState(false);
   const [currentItems, setCurrentItems] = useState<ListItem[]>([]);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const userIdRef = useRef<string | null>(null);
 
   // Load user + shopping list + saved location
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { setLoadingUser(false); return; }
       setLoggedIn(true);
+      userIdRef.current = user.id;
 
       // Load shopping list items (including group_id)
       const { data: rawItems } = await supabase
@@ -652,16 +654,17 @@ export default function ComparePage() {
   };
 
   const handleReplace = useCallback(async (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number) => {
-    // Apply replacement to ALL stores that are missing oldCode
+    // Apply replacement to ALL stores that have oldCode (found OR missing)
     // For the triggering store: use the already-verified storePrice
     // For other stores: check if the substitute exists there too
     const currentStores = stores;
     const updatedStores = await Promise.all(
       currentStores.map(async (s) => {
-        const missingItem = s.items.find(i => i.item_code === oldCode && !i.found);
-        if (!missingItem) return s; // item not missing in this store — skip
+        // Find the item regardless of found/missing status
+        const existingItem = s.items.find(i => i.item_code === oldCode);
+        if (!existingItem) return s; // item not in this store at all — skip
 
-        const quantity = missingItem.quantity;
+        const quantity = existingItem.quantity;
         let price: number | null = null;
 
         if (s.store_key === storeKey) {
@@ -708,6 +711,32 @@ export default function ComparePage() {
     );
 
     setStores(updatedStores);
+
+    // Persist replacement to Supabase shopping_list_items
+    const userId = userIdRef.current;
+    if (userId) {
+      await supabase
+        .from('shopping_list_items')
+        .update({ item_code: newItem.item_code, item_name: newItem.item_name })
+        .eq('user_id', userId)
+        .eq('item_code', oldCode);
+    }
+
+    // Update currentItems so re-compare uses the new item code
+    setCurrentItems(prev =>
+      prev.map(i =>
+        i.item_code === oldCode
+          ? { ...i, item_code: newItem.item_code, item_name: newItem.item_name }
+          : i
+      )
+    );
+    setListItems(prev =>
+      prev.map(i =>
+        i.item_code === oldCode
+          ? { ...i, item_code: newItem.item_code, item_name: newItem.item_name }
+          : i
+      )
+    );
   }, [stores]);
 
   // ── Loading ──

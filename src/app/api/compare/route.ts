@@ -11,6 +11,10 @@ const TS_HEADERS = { 'X-TYPESENSE-API-KEY': TYPESENSE_SEARCH_KEY };
 // How many days old a fresh product's price can be before it's excluded
 const FRESH_MAX_AGE_DAYS = 7;
 
+// Fuel cost: 8 NIS per 15 km = 0.5333 NIS/km
+// Used to adjust effective_total so closer stores win on tie-breaking
+const FUEL_COST_PER_KM = 8 / 15;
+
 async function tsSearch(collection: string, params: Record<string, string>) {
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${TS_BASE}/collections/${collection}/documents/search?${qs}`, {
@@ -24,14 +28,24 @@ async function tsSearch(collection: string, params: Record<string, string>) {
 /**
  * Batch fetch prices for multiple doc IDs using Typesense /multi_search (POST).
  * Splits into chunks of CHUNK_SIZE to stay well under any payload limits.
- * Returns a map of docId → { item_price, item_name }
+ * Returns a map of docId → DocData
  */
 const BATCH_CHUNK_SIZE = 50; // IDs per sub-query; keeps filter_by well under 4000 chars
+
+type DocData = {
+  item_price: number;
+  item_name: string;
+  unit_price?: number;      // מחיר ל-100ג׳/מ״ל
+  promo_price?: number;     // מחיר מבצע (discounted_price)
+  promo_min_qty?: number;   // כמות מינימום למבצע
+  reward_type?: number;     // 1/3=מחיר קבוע, 10=עסקת כמות (6=מתנה — מדולג)
+  b_is_weighted?: boolean;  // מוצר שקיל (נמכר לפי משקל)
+};
 
 async function tsBatchGetDocs(
   collection: string,
   docIds: string[]
-): Promise<Map<string, { item_price: number; item_name: string }>> {
+): Promise<Map<string, DocData>> {
   if (docIds.length === 0) return new Map();
 
   // Split into chunks
@@ -47,6 +61,7 @@ async function tsBatchGetDocs(
     query_by: 'item_name',
     filter_by: `id:[${chunk.map(id => `\`${id}\``).join(',')}]`,
     per_page: chunk.length,
+    include_fields: 'id,item_price,item_name,unit_price,promo_price,promo_min_qty,reward_type,b_is_weighted',
   }));
 
   const res = await fetch(`${TS_BASE}/multi_search`, {
@@ -56,7 +71,7 @@ async function tsBatchGetDocs(
     cache: 'no-store',
   });
 
-  const result = new Map<string, { item_price: number; item_name: string }>();
+  const result = new Map<string, DocData>();
   if (!res.ok) return result;
 
   const data = await res.json();
@@ -66,7 +81,15 @@ async function tsBatchGetDocs(
     for (const hit of (searchResult.hits ?? []) as any[]) {
       const doc = hit.document;
       if (doc?.id && doc.item_price > 0) {
-        result.set(doc.id, { item_price: doc.item_price, item_name: doc.item_name });
+        result.set(doc.id, {
+          item_price:    doc.item_price,
+          item_name:     doc.item_name,
+          unit_price:    doc.unit_price    ?? undefined,
+          promo_price:   doc.promo_price   ?? undefined,
+          promo_min_qty: doc.promo_min_qty ?? undefined,
+          reward_type:   doc.reward_type   ?? undefined,
+          b_is_weighted: doc.b_is_weighted ?? undefined,
+        });
       }
     }
   }
@@ -94,6 +117,31 @@ function storeIdVariants(storeId: string): string[] {
   return Array.from(new Set([padded3, plain, storeId]));
 }
 
+/**
+ * Calculate the effective (promo-adjusted) price for an item.
+ * RewardType 1, 3 → fixed discounted price (apply when qty >= min_qty)
+ * RewardType 10   → quantity deal (apply when qty >= min_qty)
+ * RewardType 6    → gift item — skipped in pipeline, never reaches here
+ * Returns itemPrice unchanged if promo doesn't apply or is not cheaper.
+ */
+function calcEffectivePrice(
+  itemPrice: number,
+  promoPrice?: number,
+  promoMinQty?: number,
+  rewardType?: number,
+  quantity = 1,
+): number {
+  if (!promoPrice || promoPrice <= 0 || promoPrice >= itemPrice) return itemPrice;
+  const minQty = promoMinQty ?? 1;
+  if (rewardType === 1 || rewardType === 3) {
+    return quantity >= minQty ? promoPrice : itemPrice;
+  }
+  if (rewardType === 10 && quantity >= minQty) {
+    return promoPrice;
+  }
+  return itemPrice;
+}
+
 export type StoreResult = {
   store_key: string;
   chain_id: string;
@@ -106,6 +154,8 @@ export type StoreResult = {
   products_found: number;
   products_missing: number;
   total_price: number;
+  effective_total: number;      // total_price with promos applied
+  fuel_adjusted_total: number;  // effective_total + fuel cost to reach store
   items: ItemResult[];
 };
 
@@ -116,6 +166,8 @@ export type ItemResult = {
   found: boolean;
   price: number | null;
   total: number | null;
+  unit_price?: number | null;      // מחיר ל-100ג׳/מ״ל
+  effective_price?: number | null; // מחיר אחרי מבצע (אם קיים)
   // Group item fields
   group_label?: string;       // Display name of the group (e.g. "שמן קנולה/חמניות")
   resolved_item_code?: string; // Actual barcode that was found (same as item_code when found)
@@ -192,7 +244,9 @@ async function getFreshCandidateCodes(groupLabel: string): Promise<string[]> {
 /**
  * POST /api/compare
  * Body: { lat, lng, radius_km, items: [{item_code, item_name, quantity, candidate_codes?, group_label?, is_fresh_product?}] }
- * Returns: stores sorted by products_found DESC, total_price ASC
+ * Returns: { stores, most_cost_effective_key }
+ *   stores: sorted by products_found DESC, total_price ASC
+ *   most_cost_effective_key: store_key of the store with lowest fuel-adjusted effective total
  *
  * PERFORMANCE: Uses batch Typesense queries (one per item per chain) instead of
  * individual doc fetches, reducing N*M requests to N+M requests.
@@ -275,6 +329,8 @@ export async function POST(request: NextRequest) {
           products_found: 0,
           products_missing: 0,
           total_price: 0,
+          effective_total: 0,
+          fuel_adjusted_total: 0,
           items: [],
         });
       }
@@ -322,6 +378,8 @@ export async function POST(request: NextRequest) {
                     found: false,
                     price: null,
                     total: null,
+                    unit_price: null,
+                    effective_price: null,
                     group_label: item.group_label,
                     is_fresh_product: item.is_fresh_product,
                     image_item_code: item.image_item_code,
@@ -342,7 +400,9 @@ export async function POST(request: NextRequest) {
             // Batch fetch all at once (one Typesense query per item per chain)
             const priceMap = await tsBatchGetDocs(collection, docIds);
 
-            // For each store, find the best (cheapest) price among all codes and variants
+            // For each store, find the best price among all codes and variants.
+            // For weight-based items (b_is_weighted=true): compare by unit_price (price/100g).
+            // For regular items: compare by item_price.
             for (const store of stores) {
               const variants = storeIdVariants(store.store_id);
               const primaryVariant = variants[0];
@@ -350,28 +410,48 @@ export async function POST(request: NextRequest) {
               const sr = storeResultMap.get(storeKey);
               if (!sr) continue;
 
-              // Find cheapest match across all codes and all sid variants
+              // Find best match across all codes and all sid variants
               let bestPrice: number | null = null;
               let bestCode: string | null = null;
               let bestName: string | null = null;
+              let bestUnitPrice: number | null = null;
+              let bestEffectivePrice: number | null = null;
+              let bestCompareValue: number | null = null; // unit_price or item_price
 
               for (const sid of variants) {
                 for (const code of codesToCheck) {
                   const docId = `${chainId}-${sid}-${code}`;
                   const doc = priceMap.get(docId);
-                  if (doc && doc.item_price > 0) {
-                    if (bestPrice === null || doc.item_price < bestPrice) {
-                      bestPrice = doc.item_price;
-                      bestCode = code;
-                      bestName = doc.item_name;
-                    }
+                  if (!doc || doc.item_price <= 0) continue;
+
+                  // For weight-based items: compare by unit_price if available
+                  const isWeightBased = doc.b_is_weighted === true;
+                  const compareValue = (isWeightBased && doc.unit_price && doc.unit_price > 0)
+                    ? doc.unit_price
+                    : doc.item_price;
+
+                  if (bestCompareValue === null || compareValue < bestCompareValue) {
+                    bestCompareValue = compareValue;
+                    bestPrice = doc.item_price;
+                    bestCode = code;
+                    bestName = doc.item_name;
+                    bestUnitPrice = doc.unit_price ?? null;
+                    bestEffectivePrice = calcEffectivePrice(
+                      doc.item_price,
+                      doc.promo_price,
+                      doc.promo_min_qty,
+                      doc.reward_type,
+                      item.quantity,
+                    );
                   }
                 }
               }
 
               if (bestPrice !== null && bestCode !== null) {
                 const total = bestPrice * item.quantity;
+                const effectiveTotal = (bestEffectivePrice ?? bestPrice) * item.quantity;
                 sr.total_price += total;
+                sr.effective_total += effectiveTotal;
                 sr.products_found++;
                 sr.items.push({
                   item_code: bestCode,
@@ -380,6 +460,8 @@ export async function POST(request: NextRequest) {
                   found: true,
                   price: bestPrice,
                   total,
+                  unit_price: bestUnitPrice,
+                  effective_price: bestEffectivePrice,
                   group_label: item.group_label,
                   resolved_item_code: bestCode,
                   is_fresh_product: item.is_fresh_product,
@@ -394,6 +476,8 @@ export async function POST(request: NextRequest) {
                   found: false,
                   price: null,
                   total: null,
+                  unit_price: null,
+                  effective_price: null,
                   group_label: item.group_label,
                   is_fresh_product: item.is_fresh_product,
                   image_item_code: item.image_item_code,
@@ -405,7 +489,12 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    // 4. Filter stores that found at least one item, sort: products_found DESC, total_price ASC
+    // 4. Compute fuel_adjusted_total for each store
+    Array.from(storeResultMap.values()).forEach(sr => {
+      sr.fuel_adjusted_total = sr.effective_total + sr.distance_km * FUEL_COST_PER_KM;
+    });
+
+    // 5. Filter stores that found at least one item, sort: products_found DESC, total_price ASC
     const storeResults = Array.from(storeResultMap.values())
       .filter(s => s.products_found > 0)
       .sort((a, b) => {
@@ -413,7 +502,23 @@ export async function POST(request: NextRequest) {
         return a.total_price - b.total_price;
       });
 
-    return NextResponse.json({ stores: storeResults });
+    // 6. Find most cost-effective store:
+    //    Among stores with maximum coverage, pick the one with lowest fuel_adjusted_total.
+    //    This accounts for both promo prices and travel cost.
+    let mostCostEffectiveKey: string | null = null;
+    if (storeResults.length > 0) {
+      const maxFound = storeResults[0].products_found; // already sorted, first has max
+      const topCoverage = storeResults.filter(s => s.products_found === maxFound);
+      const best = topCoverage.reduce((a, b) =>
+        a.fuel_adjusted_total <= b.fuel_adjusted_total ? a : b
+      );
+      mostCostEffectiveKey = best.store_key;
+    }
+
+    return NextResponse.json({
+      stores: storeResults,
+      most_cost_effective_key: mostCostEffectiveKey,
+    });
   } catch (err) {
     console.error('Compare error:', err);
     return NextResponse.json({ error: 'שגיאה בהשוואה' }, { status: 500 });

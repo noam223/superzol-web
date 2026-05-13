@@ -33,6 +33,8 @@ type ItemResult = {
   found: boolean;
   price: number | null;
   total: number | null;
+  unit_price?: number | null;      // מחיר ל-100ג׳/מ״ל
+  effective_price?: number | null; // מחיר אחרי מבצע
   group_label?: string;
   resolved_item_code?: string;
   is_fresh_product?: boolean;
@@ -51,6 +53,8 @@ type StoreResult = {
   products_found: number;
   products_missing: number;
   total_price: number;
+  effective_total: number;      // total with promos applied
+  fuel_adjusted_total: number;  // effective_total + fuel cost
   items: ItemResult[];
 };
 
@@ -240,6 +244,85 @@ function SubstituteSheet({
   );
 }
 
+// ─── MostCostEffectiveCard ────────────────────────────────────────────────────
+
+function MostCostEffectiveCard({
+  store, totalItems, cheapestTotal,
+}: {
+  store: StoreResult;
+  totalItems: number;
+  cheapestTotal: number; // total_price of rank-#1 store (for savings display)
+}) {
+  const coveragePct = Math.round((store.products_found / totalItems) * 100);
+  const hasPromos = store.effective_total < store.total_price;
+  const displayTotal = hasPromos ? store.effective_total : store.total_price;
+  const savings = cheapestTotal - displayTotal;
+
+  return (
+    <div
+      className="rounded-3xl overflow-hidden mb-1"
+      style={{
+        background: 'linear-gradient(135deg, rgba(255,248,210,0.97) 0%, rgba(255,235,150,0.92) 100%)',
+        border: '2px solid rgba(220,170,0,0.55)',
+        boxShadow: '0 0 22px 2px rgba(220,170,0,0.18)',
+      }}
+    >
+      {/* Badge row */}
+      <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+        <span className="text-lg">⭐</span>
+        <span className="text-xs font-bold px-2.5 py-0.5 rounded-full"
+          style={{ background: 'linear-gradient(90deg,#f5c842,#e8a800)', color: '#7a5500', letterSpacing: 0.3 }}>
+          הכי משתלמת!
+        </span>
+        {hasPromos && (
+          <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+            style={{ background: 'rgba(45,122,45,0.12)', color: '#2d7a2d', border: '1px solid rgba(45,122,45,0.25)' }}>
+            🏷️ כולל מבצעים
+          </span>
+        )}
+      </div>
+
+      {/* Store info row */}
+      <div className="flex items-center gap-3 px-4 pb-3 pt-1">
+        {/* Chain logo */}
+        <div className="shrink-0">
+          {getChainLogoUrl(store.chain_name) ? (
+            <div style={{ width: 48, height: 30, borderRadius: 8, overflow: 'hidden', background: '#fff', border: '1px solid rgba(182,171,156,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            </div>
+          ) : (
+            <span style={{ fontSize: 10, color: '#8a7f75', maxWidth: 48, lineHeight: 1.2 }}>{store.chain_name}</span>
+          )}
+        </div>
+
+        {/* Name + distance + coverage */}
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
+          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+            <span className="text-xs" style={{ color: '#8a7f75' }}>📍 {store.distance_km.toFixed(1)} ק&quot;מ</span>
+            <span className="text-xs font-medium" style={{ color: store.products_missing > 0 ? '#b85c00' : '#2d7a2d' }}>
+              {store.products_found}/{totalItems} מוצרים ({coveragePct}%)
+            </span>
+          </div>
+        </div>
+
+        {/* Price + savings */}
+        <div className="shrink-0 text-right">
+          <p className="font-bold text-base" style={{ color: '#b07800' }}>₪{displayTotal.toFixed(2)}</p>
+          {hasPromos && (
+            <p className="text-xs line-through" style={{ color: '#8a7f75' }}>₪{store.total_price.toFixed(2)}</p>
+          )}
+          {savings > 0.01 && (
+            <p className="text-xs font-bold" style={{ color: '#2d7a2d' }}>חסכון ₪{savings.toFixed(2)}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── StoreCard ────────────────────────────────────────────────────────────────
 
 function StoreCard({
@@ -386,11 +469,32 @@ function StoreCard({
                 {item.found ? (
                   <div className="flex items-center gap-2 shrink-0">
                     <div className="text-right">
-                      <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
-                      {item.is_fresh_product
-                        ? <p className="text-xs" style={{ color: '#b05a00' }}>לק&quot;ג</p>
-                        : item.quantity > 1 && <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
-                      }
+                      {/* מחיר מבצע אפקטיבי (אם קיים ונמוך ממחיר רגיל) */}
+                      {item.effective_price != null && item.effective_price < item.price! ? (
+                        <>
+                          <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>
+                            ₪{(item.effective_price * item.quantity).toFixed(2)}
+                          </p>
+                          <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>
+                            ₪{item.total!.toFixed(2)}
+                          </p>
+                          <p className="text-xs font-medium" style={{ color: '#2d7a2d' }}>🏷️ מבצע</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
+                          {item.is_fresh_product
+                            ? <p className="text-xs" style={{ color: '#b05a00' }}>לק&quot;ג</p>
+                            : item.quantity > 1 && <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
+                          }
+                        </>
+                      )}
+                      {/* מחיר ל-100ג׳ (לפריטים שקילים) */}
+                      {item.unit_price != null && item.unit_price > 0 && (
+                        <p className="text-xs" style={{ color: '#8a7f75' }}>
+                          ₪{item.unit_price.toFixed(2)}/100ג׳
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => setSubstituteFor(item)}
@@ -532,6 +636,7 @@ export default function ComparePage() {
   const [location, setLocation] = useState<Location | null>(null);
   const [radiusKm, setRadiusKm] = useState(10);
   const [stores, setStores] = useState<StoreResult[]>([]);
+  const [mostCostEffectiveKey, setMostCostEffectiveKey] = useState<string | null>(null);
   const [comparing, setComparing] = useState(false);
   const [compareError, setCompareError] = useState('');
   const [compared, setCompared] = useState(false);
@@ -620,6 +725,7 @@ export default function ComparePage() {
     setComparing(true);
     setCompareError('');
     setStores([]);
+    setMostCostEffectiveKey(null);
     try {
       const res = await fetch('/api/compare', {
         method: 'POST',
@@ -629,6 +735,7 @@ export default function ComparePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'שגיאה');
       setStores(data.stores || []);
+      setMostCostEffectiveKey(data.most_cost_effective_key ?? null);
       setCompared(true);
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } catch (e) {
@@ -874,6 +981,21 @@ export default function ComparePage() {
                   </p>
                   <p className="text-xs" style={{ color: '#8a7f75' }}>ממוינות לפי כיסוי ומחיר</p>
                 </div>
+
+                {/* ⭐ Most cost-effective store — always shown above ranking table */}
+                {mostCostEffectiveKey && (() => {
+                  const mceStore = stores.find(s => s.store_key === mostCostEffectiveKey);
+                  const cheapestTotal = stores[0]?.total_price ?? 0;
+                  return mceStore ? (
+                    <MostCostEffectiveCard
+                      store={mceStore}
+                      totalItems={currentItems.length}
+                      cheapestTotal={cheapestTotal}
+                    />
+                  ) : null;
+                })()}
+
+                {/* 🏆 Ranking table */}
                 {stores.map((store, idx) => (
                   <StoreCard
                     key={store.store_key}

@@ -1,0 +1,43 @@
+{
+	"folders": [
+		{
+			"path": "../../../.."
+		},
+		{
+			"path": "../../../../../woodsite"
+		},
+		{
+			"path": "../../../../../woodsite/ui-ux-pro-max-skill-main"
+		},
+		{
+			"path": "../../../../superzol-clean/INDEXES/RamiLevi"
+		},
+		{
+			"path": "../../../../superzol-clean/INDEXES/freshmarket"
+		},
+		{
+			"path": "../../../../superzol-clean/INDEXES/Keshet"
+		},
+		{
+			"path": "../../../../superzol-clean/INDEXES/osherad"
+		},
+		{
+			"path": "../../../../superzol-clean/INDEXES/politzer"
+		},
+		{
+			"path": "../../../../superzol-clean/INDEXES/SalachD"
+		},
+		{
+			"path": "../../../../superzol-clean/INDEXES/Stop_Market"
+		},
+		{
+			"path": "../../../../superzol-clean/INDEXES/TivTaam"
+		},
+		{
+			"path": "../../../../superzol-clean/INDEXES/yohananof"
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "superzol"
+	}
+}

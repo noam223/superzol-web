@@ -247,19 +247,8 @@ export default function SearchPage() {
 
     try {
       const { hits, found } = await searchProductsIndex(q, { perPage: 30, groupItemCodes: groupItemCodesRef.current });
-
-      // If we have nearby chain IDs, filter results to only those available nearby
-      const nearbyChainIds = nearbyChainIdsRef.current;
-      if (nearbyChainIds && nearbyChainIds.size > 0) {
-        const itemCodes = hits.map((h: IndexProduct) => h.item_code);
-        const availableCodes = await filterItemCodesByNearbyChains(itemCodes, nearbyChainIds);
-        const filtered = hits.filter((h: IndexProduct) => availableCodes.has(h.item_code));
-        setResults(filtered);
-        setFound(filtered.length);
-      } else {
-        setResults(hits);
-        setFound(found);
-      }
+      setResults(hits);
+      setFound(found);
     } catch (err) {
       console.error(err);
       toast.error('שגיאה בחיפוש');

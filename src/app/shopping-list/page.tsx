@@ -725,17 +725,33 @@ function SwipeRow({
 
       {/* ── CENTER: name + subtitle ── */}
       <div className="flex-1 min-w-0 px-3 py-3">
-        <p
-          className="font-bold text-sm leading-snug"
-          style={{
-            color: '#3a342c', fontFamily: 'Heebo, sans-serif',
-            textDecoration: item.checked ? 'line-through' : 'none',
-            display: '-webkit-box', WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical', overflow: 'hidden',
-          }}
-        >
-          {item.item_name}
-        </p>
+        {item.item_code && item.item_code !== 'group' ? (
+          <Link href={`/product/${item.item_code}`} onClick={e => e.stopPropagation()}>
+            <p
+              className="font-bold text-sm leading-snug"
+              style={{
+                color: '#3a342c', fontFamily: 'Heebo, sans-serif',
+                textDecoration: item.checked ? 'line-through' : 'none',
+                display: '-webkit-box', WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}
+            >
+              {item.item_name}
+            </p>
+          </Link>
+        ) : (
+          <p
+            className="font-bold text-sm leading-snug"
+            style={{
+              color: '#3a342c', fontFamily: 'Heebo, sans-serif',
+              textDecoration: item.checked ? 'line-through' : 'none',
+              display: '-webkit-box', WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical', overflow: 'hidden',
+            }}
+          >
+            {item.item_name}
+          </p>
+        )}
         {!multiSelect && (
           <div className="mt-1 flex items-center gap-1.5 flex-wrap">
             {outOfRange ? (

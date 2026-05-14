@@ -456,15 +456,26 @@ function StoreCard({
                       {item.is_fresh_product ? '🥩' : '📦'} {item.group_label}
                     </p>
                   )}
-                  <p
-                    className="text-sm font-medium leading-tight"
-                    style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}
-                  >
-                    {item.found
-                      ? item.item_name  // Actual resolved product name
-                      : (item.group_label || item.item_name)  // Group name when not found
-                    }
-                  </p>
+                  {item.found && item.resolved_item_code && item.resolved_item_code !== 'group' ? (
+                    <Link href={`/product/${item.resolved_item_code}`} onClick={e => e.stopPropagation()}>
+                      <p
+                        className="text-sm font-medium leading-tight underline-offset-2 hover:underline"
+                        style={{ color: '#4F483F' }}
+                      >
+                        {item.item_name}
+                      </p>
+                    </Link>
+                  ) : (
+                    <p
+                      className="text-sm font-medium leading-tight"
+                      style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}
+                    >
+                      {item.found
+                        ? item.item_name
+                        : (item.group_label || item.item_name)
+                      }
+                    </p>
+                  )}
                   {item.quantity > 1 && <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>}
                 </div>
                 {item.found ? (

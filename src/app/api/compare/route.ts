@@ -133,14 +133,33 @@ function calcEffectivePrice(
   rewardType?: number,
   quantity = 1,
 ): number {
-  if (!promoPrice || promoPrice <= 0 || promoPrice >= itemPrice) return itemPrice;
-  const minQty = promoMinQty ?? 1;
-  if (rewardType === 1 || rewardType === 3) {
+  if (!promoPrice || promoPrice <= 0) return itemPrice;
+  const minQty = promoMinQty && promoMinQty > 0 ? promoMinQty : 1;
+
+  if (rewardType === 1) {
+    // "X items for Y price" — promoPrice is the bundle total for minQty units.
+    // Per-unit effective price = promoPrice / minQty (applies to all full bundles).
+    if (quantity >= minQty) {
+      const perUnit = promoPrice / minQty;
+      return perUnit < itemPrice ? perUnit : itemPrice;
+    }
+    return itemPrice;
+  }
+
+  if (rewardType === 3) {
+    // "Buy X get discount" — promoPrice is the discounted per-unit price.
+    if (promoPrice >= itemPrice) return itemPrice;
     return quantity >= minQty ? promoPrice : itemPrice;
   }
-  if (rewardType === 10 && quantity >= minQty) {
-    return promoPrice;
+
+  if (rewardType === 10) {
+    // Percentage or fixed discount — promoPrice is the discounted per-unit price.
+    if (promoPrice >= itemPrice) return itemPrice;
+    return quantity >= minQty ? promoPrice : itemPrice;
   }
+
+  // Fallback: treat promoPrice as per-unit discounted price
+  if (promoPrice < itemPrice && quantity >= minQty) return promoPrice;
   return itemPrice;
 }
 

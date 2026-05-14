@@ -508,103 +508,95 @@ function StoreCard({
             {store.items.map((item, idx) => (
               <div
                 key={`${item.item_code}-${idx}`}
-                className="flex items-center gap-3 p-2.5 rounded-2xl"
+                className="flex flex-col p-2.5 rounded-2xl gap-1"
                 style={{
                   background: item.found ? 'rgba(255,255,255,0.6)' : 'rgba(191,44,44,0.06)',
                   border: item.found ? '1px solid rgba(182,171,156,0.25)' : '1px solid rgba(191,44,44,0.2)',
                 }}
               >
-                {/* Image: for group items use image_item_code; for regular items use item_code */}
-                <ProductImg
-                  itemCode={item.group_label ? (item.image_item_code || item.item_code) : item.item_code}
-                  name={item.group_label || item.item_name}
-                  size={36}
-                />
-                <div className="flex-1 min-w-0">
-                  {/* Group label badge */}
-                  {item.group_label && (
-                    <p className="text-xs font-bold mb-0.5" style={{ color: item.is_fresh_product ? '#b05a00' : '#BF2C2C' }}>
-                      {item.is_fresh_product ? '🥩' : '📦'} {item.group_label}
-                    </p>
-                  )}
-                  {item.found && item.resolved_item_code && item.resolved_item_code !== 'group' ? (
-                    <Link href={`/product/${item.resolved_item_code}`} onClick={e => e.stopPropagation()}>
-                      <p
-                        className="text-sm font-medium leading-tight underline-offset-2 hover:underline"
-                        style={{ color: '#4F483F' }}
-                      >
-                        {item.item_name}
+                {/* Top row: image | name+qty | price+button */}
+                <div className="flex items-center gap-3">
+                  <ProductImg
+                    itemCode={item.group_label ? (item.image_item_code || item.item_code) : item.item_code}
+                    name={item.group_label || item.item_name}
+                    size={36}
+                  />
+                  <div className="flex-1 min-w-0">
+                    {item.group_label && (
+                      <p className="text-xs font-bold mb-0.5" style={{ color: item.is_fresh_product ? '#b05a00' : '#BF2C2C' }}>
+                        {item.is_fresh_product ? '🥩' : '📦'} {item.group_label}
                       </p>
-                    </Link>
-                  ) : (
-                    <p
-                      className="text-sm font-medium leading-tight"
-                      style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}
-                    >
-                      {item.found
-                        ? item.item_name
-                        : (item.group_label || item.item_name)
-                      }
-                    </p>
-                  )}
-                  <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>
-                </div>
-                {item.found ? (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="text-right">
-                      {/* מחיר מבצע אפקטיבי (אם קיים ונמוך ממחיר רגיל) */}
-                      {item.effective_price != null && item.effective_price < item.price! ? (
-                        <>
-                          <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>
-                            ₪{(item.effective_price * item.quantity).toFixed(2)}
-                          </p>
-                          <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>
-                            ₪{item.total!.toFixed(2)}
-                          </p>
-                          <p className="text-xs font-medium" style={{ color: '#2d7a2d' }}>
-                            🏷️ {item.promotion_description || 'מבצע'}
-                          </p>
-                        </>
-                      ) : item.promotion_description ? (
-                        <>
-                          <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
-                          <p className="text-xs font-medium" style={{ color: '#c47a00' }}>🏷️ {item.promotion_description}</p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
-                          {item.is_fresh_product
-                            ? <p className="text-xs" style={{ color: '#b05a00' }}>לק&quot;ג</p>
-                            : <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
-                          }
-                        </>
-                      )}
-                      {/* מחיר ל-100ג׳ (לפריטים שקילים) */}
-                      {item.unit_price != null && item.unit_price > 0 && (
-                        <p className="text-xs" style={{ color: '#8a7f75' }}>
-                          ₪{item.unit_price.toFixed(2)}/100ג׳
+                    )}
+                    {item.found && item.resolved_item_code && item.resolved_item_code !== 'group' ? (
+                      <Link href={`/product/${item.resolved_item_code}`} onClick={e => e.stopPropagation()}>
+                        <p className="text-sm font-medium leading-tight underline-offset-2 hover:underline" style={{ color: '#4F483F' }}>
+                          {item.item_name}
                         </p>
-                      )}
+                      </Link>
+                    ) : (
+                      <p className="text-sm font-medium leading-tight"
+                        style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}>
+                        {item.found ? item.item_name : (item.group_label || item.item_name)}
+                      </p>
+                    )}
+                    <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>
+                  </div>
+                  {/* Price + replace button */}
+                  {item.found ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="text-right">
+                        {item.effective_price != null && item.effective_price < item.price! ? (
+                          <>
+                            <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>
+                              ₪{(item.effective_price * item.quantity).toFixed(2)}
+                            </p>
+                            <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>
+                              ₪{item.total!.toFixed(2)}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
+                            {!item.promotion_description && (
+                              item.is_fresh_product
+                                ? <p className="text-xs" style={{ color: '#b05a00' }}>לק&quot;ג</p>
+                                : <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
+                            )}
+                          </>
+                        )}
+                        {item.unit_price != null && item.unit_price > 0 && (
+                          <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.unit_price.toFixed(2)}/100ג׳</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setSubstituteFor(item)}
+                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-xl font-medium"
+                        style={{ background: 'rgba(100,100,100,0.08)', color: '#8a7f75', border: '1px solid rgba(182,171,156,0.35)' }}
+                        title="החלף מוצר"
+                      >
+                        <RefreshCw size={11} />
+                        החלף
+                      </button>
                     </div>
+                  ) : (
                     <button
                       onClick={() => setSubstituteFor(item)}
-                      className="flex items-center gap-1 text-xs px-2 py-1 rounded-xl font-medium"
-                      style={{ background: 'rgba(100,100,100,0.08)', color: '#8a7f75', border: '1px solid rgba(182,171,156,0.35)' }}
-                      title="החלף מוצר"
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-xl font-medium shrink-0"
+                      style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', border: '1px solid rgba(191,44,44,0.25)' }}
                     >
-                      <RefreshCw size={11} />
-                      החלף
+                      <RefreshCw size={12} />
+                      תחליף
                     </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setSubstituteFor(item)}
-                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-xl font-medium shrink-0"
-                    style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', border: '1px solid rgba(191,44,44,0.25)' }}
-                  >
-                    <RefreshCw size={12} />
-                    תחליף
-                  </button>
+                  )}
+                </div>
+
+                {/* Promo description — full-width row below, only when present */}
+                {item.found && item.promotion_description && (
+                  <p className="text-xs font-medium px-1" style={{
+                    color: item.effective_price != null && item.effective_price < item.price! ? '#2d7a2d' : '#c47a00',
+                  }}>
+                    🏷️ {item.promotion_description}
+                  </p>
                 )}
               </div>
             ))}

@@ -63,10 +63,6 @@ export default function PromotionsPage() {
     setLoading(false);
   };
 
-  const savingsPct = (p: IndexProduct) => {
-    if (!p.promo_price || !p.min_price || p.min_price <= 0) return 0;
-    return Math.round(((p.min_price - p.promo_price) / p.min_price) * 100);
-  };
 
   return (
     <div className="min-h-screen pb-28" style={{ background: 'url(/icons/background.jpg) center/cover fixed', backgroundColor: '#DAD1CA' }}>
@@ -102,59 +98,46 @@ export default function PromotionsPage() {
               {promos.length} מבצעים פעילים
             </p>
             <div className="flex flex-col gap-3">
-              {promos.map((promo) => {
-                const pct = savingsPct(promo);
-                return (
-                  <Link
-                    key={promo.item_code}
-                    href={`/product/${promo.item_code}`}
-                    className="flex gap-3 p-3 rounded-2xl"
-                    style={{
-                      background: 'rgba(233, 216, 197, 0.85)',
-                      border: '1.5px solid rgba(182, 171, 156, 0.4)',
-                    }}
-                  >
-                    {/* Image */}
-                    <ProductImage itemCode={promo.item_code} name={promo.item_name} />
+              {promos.map((promo) => (
+                <Link
+                  key={promo.item_code}
+                  href={`/product/${promo.item_code}`}
+                  className="flex gap-3 p-3 rounded-2xl"
+                  style={{
+                    background: 'rgba(233, 216, 197, 0.85)',
+                    border: '1.5px solid rgba(182, 171, 156, 0.4)',
+                  }}
+                >
+                  {/* Image */}
+                  <ProductImage itemCode={promo.item_code} name={promo.item_name} />
 
-                    {/* Info */}
-                    <div className="flex flex-col flex-1 min-w-0 gap-1">
-                      <h3 className="font-semibold text-sm leading-snug line-clamp-2" style={{ color: '#4F483F' }}>
-                        {promo.item_name}
-                      </h3>
+                  {/* Info */}
+                  <div className="flex flex-col flex-1 min-w-0 gap-1">
+                    <h3 className="font-semibold text-sm leading-snug line-clamp-2" style={{ color: '#4F483F' }}>
+                      {promo.item_name}
+                    </h3>
 
-                      {promo.promo_description && (
-                        <p
-                          className="text-xs px-2 py-1 rounded-lg"
-                          style={{ background: 'rgba(191, 44, 44, 0.08)', color: '#BF2C2C' }}
-                        >
-                          {promo.promo_description}
-                        </p>
-                      )}
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-full self-start font-medium"
+                      style={{ background: 'rgba(191, 44, 44, 0.12)', color: '#BF2C2C' }}
+                    >
+                      🏷️ במבצע
+                    </span>
 
-                      {/* Prices */}
-                      <div className="flex items-baseline gap-2 mt-auto">
-                        <span className="text-base font-bold" style={{ color: '#BF2C2C' }}>
-                          ₪{(promo.promo_price ?? promo.min_price).toFixed(2)}
+                    {/* Price */}
+                    <div className="flex items-baseline gap-2 mt-auto">
+                      <span className="text-base font-bold" style={{ color: '#2d7a2d' }}>
+                        ₪{promo.min_price.toFixed(2)}
+                      </span>
+                      {promo.max_price && promo.max_price > promo.min_price && (
+                        <span className="text-xs" style={{ color: '#aaa' }}>
+                          עד ₪{promo.max_price.toFixed(2)}
                         </span>
-                        {promo.promo_price && promo.min_price > promo.promo_price && (
-                          <span className="text-xs line-through" style={{ color: '#aaa' }}>
-                            ₪{promo.min_price.toFixed(2)}
-                          </span>
-                        )}
-                        {pct > 0 && (
-                          <span
-                            className="text-xs px-1.5 py-0.5 rounded-full font-bold mr-auto"
-                            style={{ background: '#BF2C2C', color: 'white' }}
-                          >
-                            -{pct}%
-                          </span>
-                        )}
-                      </div>
+                      )}
                     </div>
-                  </Link>
-                );
-              })}
+                  </div>
+                </Link>
+              ))}
             </div>
           </>
         )}

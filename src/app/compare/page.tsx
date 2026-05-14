@@ -732,6 +732,7 @@ export default function ComparePage() {
   const [compared, setCompared] = useState(false);
   const [currentItems, setCurrentItems] = useState<ListItem[]>([]);
   const [promoFulfilled, setPromoFulfilled] = useState(false);
+  const originalItemsRef = useRef<ListItem[]>([]); // snapshot of quantities before promo fulfillment
   const resultsRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
 
@@ -978,6 +979,9 @@ export default function ComparePage() {
     const userId = userIdRef.current;
     if (!userId) return;
 
+    // Snapshot original quantities before modifying anything
+    originalItemsRef.current = currentItems.map(i => ({ ...i }));
+
     // Update each item's quantity in Supabase
     await Promise.all(
       suggestions.map(s =>
@@ -989,18 +993,12 @@ export default function ComparePage() {
       )
     );
 
-    // Update local state
+    // Update local state (only currentItems — listItems stays as original)
     const updatedItems = currentItems.map(i => {
       const suggestion = suggestions.find(s => s.item_code === i.item_code);
       return suggestion ? { ...i, quantity: suggestion.suggested_qty } : i;
     });
     setCurrentItems(updatedItems);
-    setListItems(prev =>
-      prev.map(i => {
-        const suggestion = suggestions.find(s => s.item_code === i.item_code);
-        return suggestion ? { ...i, quantity: suggestion.suggested_qty } : i;
-      })
-    );
     setPromoFulfilled(true);
 
     // Re-run compare with updated quantities
@@ -1010,14 +1008,17 @@ export default function ComparePage() {
     }
   }, [currentItems, location, radiusKm, runCompare]);
 
-  // ── Handle promo cancel: restore original quantities ──
+  // ── Handle promo cancel: restore original quantities from snapshot ──
   const handlePromoCancel = useCallback(async () => {
     const userId = userIdRef.current;
     if (!userId) return;
 
-    // Restore original quantities from listItems (before fulfillment)
+    const originals = originalItemsRef.current;
+    if (originals.length === 0) return;
+
+    // Restore original quantities in Supabase
     await Promise.all(
-      listItems.map(i =>
+      originals.map(i =>
         supabase
           .from('shopping_list_items')
           .update({ quantity: i.quantity })
@@ -1026,14 +1027,16 @@ export default function ComparePage() {
       )
     );
 
-    setCurrentItems(listItems);
+    setCurrentItems(originals);
+    setListItems(originals);
     setPromoFulfilled(false);
+    originalItemsRef.current = [];
 
     if (location) {
       setCompared(false);
-      await runCompare(listItems, location, radiusKm);
+      await runCompare(originals, location, radiusKm);
     }
-  }, [listItems, location, radiusKm, runCompare]);
+  }, [location, radiusKm, runCompare]);
 
   // ── Loading ──
   if (loadingUser) {

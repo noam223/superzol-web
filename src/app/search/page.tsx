@@ -416,13 +416,13 @@ export default function SearchPage() {
                       )}
                     </div>
 
-                    {/* Promo badge — populated after running 4_build_products_index.py */}
-                    {product.has_promotion && product.promo_description && (
+                    {/* Promo badge */}
+                    {product.has_promotion && (
                       <span
                         className="text-xs px-2 py-0.5 rounded-full self-start font-medium"
                         style={{ background: 'rgba(196, 122, 0, 0.12)', color: '#c47a00' }}
                       >
-                        🏷️ {product.promo_description}
+                        🏷️ במבצע
                       </span>
                     )}
                   </div>

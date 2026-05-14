@@ -352,8 +352,6 @@ export type IndexProduct = {
   max_price?: number;
   chain_count: number;
   has_promotion?: boolean;
-  promo_price?: number;
-  promo_description?: string;
   /** Unix timestamp (seconds) of the most-recent LastSaleDateTime seen across all chains */
   last_updated?: number;
 };

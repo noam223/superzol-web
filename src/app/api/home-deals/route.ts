@@ -19,8 +19,6 @@ type PromoItem = {
   item_code: string;
   item_name: string;
   min_price: number;
-  promo_price?: number;
-  promo_description?: string;
   cheapest_chain_name?: string;
   has_promotion?: boolean;
   is_featured?: boolean;
@@ -92,8 +90,8 @@ export async function GET() {
     }
   }
 
-  // 3. Fetch hot deals (lowest promo price)
-  const hotDeals = await fetchFromIndex(20, 'promo_price:asc');
+  // 3. Fetch hot deals (lowest min_price among promos)
+  const hotDeals = await fetchFromIndex(20, 'min_price:asc');
 
   // 4. Fetch all promos for variety carousel
   const allPromos = await fetchFromIndex(20, 'min_price:asc');

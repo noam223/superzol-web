@@ -264,14 +264,13 @@ function MostCostEffectiveCard({
   totalItems: number;
   cheapestTotal: number; // total_price of rank-#1 store (for savings display)
 }) {
-  const [showDetail, setShowDetail] = useState(false);
+  const [open, setOpen] = useState(false);
   const coveragePct = Math.round((store.products_found / totalItems) * 100);
   const hasPromos = store.effective_total < store.total_price;
   const displayTotal = hasPromos ? store.effective_total : store.total_price;
   const savings = cheapestTotal - displayTotal;
 
   return (
-    <>
     <div
       className="rounded-3xl overflow-hidden mb-1"
       style={{
@@ -280,38 +279,30 @@ function MostCostEffectiveCard({
         boxShadow: '0 0 22px 2px rgba(220,170,0,0.18)',
       }}
     >
-      {/* Badge row */}
-      <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-        <span className="text-lg">⭐</span>
-        <span className="text-xs font-bold px-2.5 py-0.5 rounded-full"
-          style={{ background: 'linear-gradient(90deg,#f5c842,#e8a800)', color: '#7a5500', letterSpacing: 0.3 }}>
-          הכי משתלמת!
-        </span>
-        {hasPromos && (
-          <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-            style={{ background: 'rgba(45,122,45,0.12)', color: '#2d7a2d', border: '1px solid rgba(45,122,45,0.25)' }}>
-            🏷️ כולל מבצעים
-          </span>
-        )}
-      </div>
-
-      {/* Store info row */}
-      <div className="flex items-center gap-3 px-4 pb-2 pt-1">
-        {/* Chain logo */}
-        <div className="shrink-0">
+      {/* Clickable header row — toggles accordion */}
+      <button className="w-full flex items-center gap-3 px-4 pt-3 pb-2 text-right" onClick={() => setOpen(o => !o)}>
+        {/* Badge + logo stacked */}
+        <div className="shrink-0 flex flex-col items-center gap-1.5">
+          <span className="text-lg">⭐</span>
           {getChainLogoUrl(store.chain_name) ? (
-            <div style={{ width: 48, height: 30, borderRadius: 8, overflow: 'hidden', background: '#fff', border: '1px solid rgba(182,171,156,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+            <div style={{ width: 44, height: 28, borderRadius: 7, overflow: 'hidden', background: '#fff', border: '1px solid rgba(182,171,156,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           ) : (
-            <span style={{ fontSize: 10, color: '#8a7f75', maxWidth: 48, lineHeight: 1.2 }}>{store.chain_name}</span>
+            <span style={{ fontSize: 9, color: '#8a7f75', textAlign: 'center', maxWidth: 44, lineHeight: 1.2 }}>{store.chain_name}</span>
           )}
         </div>
 
         {/* Name + distance + coverage */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 text-right">
+          <div className="mb-0.5">
+            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full"
+              style={{ background: 'linear-gradient(90deg,#f5c842,#e8a800)', color: '#7a5500', letterSpacing: 0.3 }}>
+              הכי משתלמת!
+            </span>
+          </div>
           <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
           <div className="flex items-center gap-3 mt-0.5 flex-wrap">
             <span className="text-xs" style={{ color: '#8a7f75' }}>📍 {store.distance_km.toFixed(1)} ק&quot;מ</span>
@@ -321,7 +312,7 @@ function MostCostEffectiveCard({
           </div>
         </div>
 
-        {/* Price + savings */}
+        {/* Price + savings + chevron */}
         <div className="shrink-0 text-right">
           <p className="font-bold text-base" style={{ color: '#b07800' }}>₪{displayTotal.toFixed(2)}</p>
           {hasPromos && (
@@ -331,97 +322,76 @@ function MostCostEffectiveCard({
             <p className="text-xs font-bold" style={{ color: '#2d7a2d' }}>חסכון ₪{savings.toFixed(2)}</p>
           )}
         </div>
+        <div style={{ color: '#8a7f75', flexShrink: 0 }}>
+          {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </div>
+      </button>
+
+      {/* Coverage bar */}
+      <div className="px-4 pb-1">
+        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(182,171,156,0.3)' }}>
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${coveragePct}%`, background: coveragePct === 100 ? '#2d7a2d' : coveragePct >= 70 ? '#5a8a2d' : '#b85c00' }}
+          />
+        </div>
       </div>
 
-      {/* פירוט מוצרים button */}
-      <div className="px-4 pb-3">
-        <button
-          onClick={() => setShowDetail(true)}
-          className="w-full text-xs font-semibold py-2 rounded-2xl flex items-center justify-center gap-1.5"
-          style={{ background: 'rgba(176,120,0,0.12)', color: '#7a5500', border: '1px solid rgba(176,120,0,0.25)' }}
-        >
-          📋 פירוט מוצרים
-        </button>
-      </div>
-    </div>
-
-    {/* Modal פירוט מוצרים */}
-    {showDetail && (
-      <>
-        <div
-          className="fixed inset-0 z-40"
-          style={{ background: 'rgba(0,0,0,0.45)' }}
-          onClick={() => setShowDetail(false)}
-        />
-        <div
-          className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl overflow-hidden"
-          style={{ background: '#F5EDE3', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(182,171,156,0.3)' }}>
-            <h3 className="font-bold text-base" style={{ color: '#4F483F' }}>
-              ⭐ {store.store_name} — פירוט מוצרים
-            </h3>
-            <button onClick={() => setShowDetail(false)} style={{ color: '#8a7f75' }}>
-              <X size={20} />
-            </button>
-          </div>
-          {/* Items list */}
-          <div className="overflow-y-auto px-4 py-3 flex flex-col gap-2" style={{ overscrollBehavior: 'contain' }}>
-            {store.items.map((item, idx) => (
-              <div
-                key={`mce-${item.item_code}-${idx}`}
-                className="flex items-center gap-3 p-2.5 rounded-2xl"
-                style={{
-                  background: item.found ? 'rgba(255,255,255,0.7)' : 'rgba(191,44,44,0.06)',
-                  border: item.found ? '1px solid rgba(182,171,156,0.25)' : '1px solid rgba(191,44,44,0.2)',
-                }}
-              >
-                <ProductImg
-                  itemCode={item.group_label ? (item.image_item_code || item.item_code) : item.item_code}
-                  name={item.group_label || item.item_name}
-                  size={36}
-                />
-                <div className="flex-1 min-w-0">
-                  {item.group_label && (
-                    <p className="text-xs font-bold mb-0.5" style={{ color: '#BF2C2C' }}>📦 {item.group_label}</p>
-                  )}
-                  <p className="text-sm font-medium leading-tight" style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}>
-                    {item.found ? item.item_name : (item.group_label || item.item_name)}
-                  </p>
-                  <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>
-                  {item.promotion_description && (
-                    <p className="text-xs font-medium" style={{ color: '#c47a00' }}>🏷️ {item.promotion_description}</p>
-                  )}
-                </div>
-                {item.found && (
-                  <div className="text-right shrink-0">
-                    {item.effective_price != null && item.effective_price < item.price! ? (
-                      <>
-                        <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{(item.effective_price * item.quantity).toFixed(2)}</p>
-                        <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>₪{item.total!.toFixed(2)}</p>
-                      </>
-                    ) : (
-                      <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
-                    )}
-                    <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
-                  </div>
+      {/* Accordion — product list */}
+      {open && (
+        <div className="px-4 pb-4 pt-2 flex flex-col gap-2">
+          {store.items.map((item, idx) => (
+            <div
+              key={`mce-${item.item_code}-${idx}`}
+              className="flex items-center gap-3 p-2.5 rounded-2xl"
+              style={{
+                background: item.found ? 'rgba(255,255,255,0.7)' : 'rgba(191,44,44,0.06)',
+                border: item.found ? '1px solid rgba(182,171,156,0.25)' : '1px solid rgba(191,44,44,0.2)',
+              }}
+            >
+              <ProductImg
+                itemCode={item.group_label ? (item.image_item_code || item.item_code) : item.item_code}
+                name={item.group_label || item.item_name}
+                size={36}
+              />
+              <div className="flex-1 min-w-0">
+                {item.group_label && (
+                  <p className="text-xs font-bold mb-0.5" style={{ color: '#BF2C2C' }}>📦 {item.group_label}</p>
+                )}
+                <p className="text-sm font-medium leading-tight" style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}>
+                  {item.found ? item.item_name : (item.group_label || item.item_name)}
+                </p>
+                <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>
+                {item.promotion_description && (
+                  <p className="text-xs font-medium" style={{ color: '#c47a00' }}>🏷️ {item.promotion_description}</p>
                 )}
               </div>
-            ))}
-            {/* סיכום */}
-            <div className="mt-2 p-3 rounded-2xl flex items-center justify-between" style={{ background: 'rgba(176,120,0,0.1)', border: '1px solid rgba(176,120,0,0.2)' }}>
-              <span className="text-sm font-bold" style={{ color: '#7a5500' }}>סה&quot;כ</span>
-              <div className="text-right">
-                <p className="text-base font-bold" style={{ color: '#b07800' }}>₪{displayTotal.toFixed(2)}</p>
-                {hasPromos && <p className="text-xs line-through" style={{ color: '#8a7f75' }}>₪{store.total_price.toFixed(2)}</p>}
-              </div>
+              {item.found && (
+                <div className="text-right shrink-0">
+                  {item.effective_price != null && item.effective_price < item.price! ? (
+                    <>
+                      <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{(item.effective_price * item.quantity).toFixed(2)}</p>
+                      <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>₪{item.total!.toFixed(2)}</p>
+                    </>
+                  ) : (
+                    <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
+                  )}
+                  <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
+                </div>
+              )}
+            </div>
+          ))}
+          {/* סיכום */}
+          <div className="mt-1 p-3 rounded-2xl flex items-center justify-between" style={{ background: 'rgba(176,120,0,0.1)', border: '1px solid rgba(176,120,0,0.2)' }}>
+            <span className="text-sm font-bold" style={{ color: '#7a5500' }}>סה&quot;כ</span>
+            <div className="text-right">
+              <p className="text-base font-bold" style={{ color: '#b07800' }}>₪{displayTotal.toFixed(2)}</p>
+              {hasPromos && <p className="text-xs line-through" style={{ color: '#8a7f75' }}>₪{store.total_price.toFixed(2)}</p>}
             </div>
           </div>
         </div>
-      </>
-    )}
-    </>
+      )}
+    </div>
   );
 }
 
@@ -761,7 +731,7 @@ export default function ComparePage() {
   const [compareError, setCompareError] = useState('');
   const [compared, setCompared] = useState(false);
   const [currentItems, setCurrentItems] = useState<ListItem[]>([]);
-  const [showPromoFulfill, setShowPromoFulfill] = useState(false);
+  const [promoFulfilled, setPromoFulfilled] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
 
@@ -1007,7 +977,6 @@ export default function ComparePage() {
   const handlePromoFulfill = useCallback(async (suggestions: PromoSuggestion[]) => {
     const userId = userIdRef.current;
     if (!userId) return;
-    setShowPromoFulfill(false);
 
     // Update each item's quantity in Supabase
     await Promise.all(
@@ -1032,6 +1001,7 @@ export default function ComparePage() {
         return suggestion ? { ...i, quantity: suggestion.suggested_qty } : i;
       })
     );
+    setPromoFulfilled(true);
 
     // Re-run compare with updated quantities
     if (location) {
@@ -1039,6 +1009,31 @@ export default function ComparePage() {
       await runCompare(updatedItems, location, radiusKm);
     }
   }, [currentItems, location, radiusKm, runCompare]);
+
+  // ── Handle promo cancel: restore original quantities ──
+  const handlePromoCancel = useCallback(async () => {
+    const userId = userIdRef.current;
+    if (!userId) return;
+
+    // Restore original quantities from listItems (before fulfillment)
+    await Promise.all(
+      listItems.map(i =>
+        supabase
+          .from('shopping_list_items')
+          .update({ quantity: i.quantity })
+          .eq('user_id', userId)
+          .eq('item_code', i.item_code)
+      )
+    );
+
+    setCurrentItems(listItems);
+    setPromoFulfilled(false);
+
+    if (location) {
+      setCompared(false);
+      await runCompare(listItems, location, radiusKm);
+    }
+  }, [listItems, location, radiusKm, runCompare]);
 
   // ── Loading ──
   if (loadingUser) {
@@ -1171,21 +1166,25 @@ export default function ComparePage() {
                   <p className="text-xs" style={{ color: '#8a7f75' }}>ממוינות לפי כיסוי ומחיר</p>
                 </div>
 
-                {/* מימוש מבצעים button — only shown when there are promo suggestions */}
-                {promoSuggestions.length > 0 && (
+                {/* מימוש מבצעים / ביטול מבצעים button */}
+                {(promoSuggestions.length > 0 || promoFulfilled) && (
                   <button
-                    onClick={() => setShowPromoFulfill(true)}
+                    onClick={() => promoFulfilled ? handlePromoCancel() : handlePromoFulfill(promoSuggestions)}
                     className="w-full rounded-2xl px-4 py-3 flex flex-col items-center gap-0.5"
                     style={{
-                      background: 'linear-gradient(135deg, rgba(196,122,0,0.12) 0%, rgba(196,122,0,0.08) 100%)',
-                      border: '1.5px solid rgba(196,122,0,0.35)',
+                      background: promoFulfilled
+                        ? 'linear-gradient(135deg, rgba(45,122,45,0.12) 0%, rgba(45,122,45,0.08) 100%)'
+                        : 'linear-gradient(135deg, rgba(196,122,0,0.12) 0%, rgba(196,122,0,0.08) 100%)',
+                      border: promoFulfilled
+                        ? '1.5px solid rgba(45,122,45,0.35)'
+                        : '1.5px solid rgba(196,122,0,0.35)',
                     }}
                   >
-                    <span className="text-sm font-bold" style={{ color: '#7a5500' }}>
-                      🏷️ מימוש מבצעים ({promoSuggestions.length})
+                    <span className="text-sm font-bold" style={{ color: promoFulfilled ? '#2d7a2d' : '#7a5500' }}>
+                      {promoFulfilled ? '✓ ביטול מבצעים' : `🏷️ מימוש מבצעים (${promoSuggestions.length})`}
                     </span>
-                    <span className="text-xs" style={{ color: '#b07800' }}>
-                      *הוספת מוצרים כדי לממש מבצע
+                    <span className="text-xs" style={{ color: promoFulfilled ? '#2d7a2d' : '#b07800' }}>
+                      {promoFulfilled ? '*לחץ לביטול והחזרת הכמויות המקוריות' : '*הוספת מוצרים כדי לממש מבצע'}
                     </span>
                   </button>
                 )}
@@ -1219,76 +1218,6 @@ export default function ComparePage() {
         )}
       </div>
 
-      {/* ── מימוש מבצעים modal ── */}
-      {showPromoFulfill && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            style={{ background: 'rgba(0,0,0,0.45)' }}
-            onClick={() => setShowPromoFulfill(false)}
-          />
-          <div
-            className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl overflow-hidden"
-            style={{ background: '#F5EDE3', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(182,171,156,0.3)' }}>
-              <h3 className="font-bold text-base" style={{ color: '#4F483F' }}>
-                🏷️ מימוש מבצעים
-              </h3>
-              <button onClick={() => setShowPromoFulfill(false)} style={{ color: '#8a7f75' }}>
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Subtitle */}
-            <p className="text-xs px-5 pt-3 pb-1" style={{ color: '#8a7f75' }}>
-              הוספת כמות מוצרים כדי לממש מבצע — לחץ &quot;אשר&quot; לעדכון הרשימה וחישוב מחדש
-            </p>
-
-            {/* Items list */}
-            <div className="overflow-y-auto px-4 py-3 flex flex-col gap-2" style={{ overscrollBehavior: 'contain' }}>
-              {promoSuggestions.map((s, idx) => (
-                <div
-                  key={`promo-${s.item_code}-${idx}`}
-                  className="flex items-center gap-3 p-3 rounded-2xl"
-                  style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(196,122,0,0.25)' }}
-                >
-                  <ProductImg itemCode={s.item_code} name={s.item_name} size={36} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>{s.item_name}</p>
-                    <p className="text-xs font-medium mt-0.5" style={{ color: '#c47a00' }}>🏷️ {s.promotion_description}</p>
-                    <p className="text-xs mt-0.5" style={{ color: '#8a7f75' }}>ב{s.store_name}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-xs" style={{ color: '#8a7f75' }}>כמות נוכחית</p>
-                    <p className="text-sm font-bold" style={{ color: '#4F483F' }}>×{s.current_qty}</p>
-                    <p className="text-xs mt-1" style={{ color: '#2d7a2d' }}>→ ×{s.suggested_qty}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Action buttons */}
-            <div className="px-4 pb-6 pt-3 flex gap-3" style={{ borderTop: '1px solid rgba(182,171,156,0.2)' }}>
-              <button
-                onClick={() => setShowPromoFulfill(false)}
-                className="flex-1 py-3 rounded-2xl text-sm font-semibold"
-                style={{ background: 'rgba(182,171,156,0.25)', color: '#4F483F' }}
-              >
-                ביטול
-              </button>
-              <button
-                onClick={() => handlePromoFulfill(promoSuggestions)}
-                className="flex-1 py-3 rounded-2xl text-sm font-bold"
-                style={{ background: 'linear-gradient(90deg,#c47a00,#e8a800)', color: 'white' }}
-              >
-                ✓ אשר ועדכן
-              </button>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }

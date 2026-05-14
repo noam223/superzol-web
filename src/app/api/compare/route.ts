@@ -83,13 +83,14 @@ async function tsBatchGetDocs(
       const doc = hit.document;
       if (doc?.id && doc.item_price > 0) {
         result.set(doc.id, {
-          item_price:    doc.item_price,
-          item_name:     doc.item_name,
-          unit_price:    doc.unit_price    ?? undefined,
-          promo_price:   doc.promo_price   ?? undefined,
-          promo_min_qty: doc.promo_min_qty ?? undefined,
-          reward_type:   doc.reward_type   ?? undefined,
-          b_is_weighted: doc.b_is_weighted ?? undefined,
+          item_price:            doc.item_price,
+          item_name:             doc.item_name,
+          unit_price:            doc.unit_price            ?? undefined,
+          promo_price:           doc.promo_price           ?? undefined,
+          promo_min_qty:         doc.promo_min_qty         ?? undefined,
+          reward_type:           doc.reward_type           ?? undefined,
+          b_is_weighted:         doc.b_is_weighted         ?? undefined,
+          promotion_description: doc.promotion_description ?? undefined,
         });
       }
     }

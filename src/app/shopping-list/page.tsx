@@ -552,9 +552,9 @@ function ProductSheet({ item, onClose }: { item: ListItem; onClose: () => void }
 // ── SwipeRow: native scroll-snap swipe ────────────────────────────────────────
 // Uses a horizontally scrollable container with scroll-snap so the browser
 // handles both X and Y axes natively — zero JS touch handling, zero conflicts.
-// Layout: [ACTION_RIGHT (100px)] [MAIN_CONTENT (100vw)] [ACTION_LEFT (100px)]
-// The container starts scrolled to MAIN_CONTENT (scrollLeft = ACTION_WIDTH).
-// On scrollend / scroll-idle: detect which panel is snapped → fire action.
+// SwipeRow: action panels are position:absolute behind main content.
+// Main content slides with translateX on touch drag.
+// Swipe right → check/toggle | Swipe left → delete
 const ACTION_WIDTH = 80; // px — width of each action panel
 
 function SwipeRow({
@@ -584,85 +584,89 @@ function SwipeRow({
   outOfRange?: boolean;
   isScrollingRef: React.RefObject<boolean>;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const actionFiredRef = useRef(false);   // prevent double-firing
+  const actionFiredRef = useRef(false);
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
-  const directionRef = useRef<'h' | 'v' | null>(null); // locked direction
+  const directionRef = useRef<'h' | 'v' | null>(null);
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didMoveRef = useRef(false);
+  const [translateX, setTranslateX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
 
-  // Scroll to center (main content) on mount and after action
-  const resetScroll = useCallback((smooth = false) => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ left: ACTION_WIDTH, behavior: smooth ? 'smooth' : 'instant' });
+  const THRESHOLD = ACTION_WIDTH * 0.45;
+
+  const resetPosition = useCallback((animate = true) => {
+    setTranslateX(0);
     actionFiredRef.current = false;
   }, []);
 
-  useEffect(() => { resetScroll(); }, [resetScroll]);
-
-  // Detect scroll-end and fire action based on final scroll position
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    let idleTimer: ReturnType<typeof setTimeout>;
-
-    const onScroll = () => {
-      clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        if (actionFiredRef.current) return;
-        const sl = el.scrollLeft;
-        if (sl < ACTION_WIDTH * 0.4) {
-          // Scrolled right → right action (RTL: check/toggle)
-          actionFiredRef.current = true;
-          onToggle();
-          resetScroll(true);
-        } else if (sl > ACTION_WIDTH * 1.6) {
-          // Scrolled left → left action (RTL: delete)
-          actionFiredRef.current = true;
-          onDelete();
-          resetScroll(true);
-        } else {
-          resetScroll(true);
-        }
-      }, 80);
-    };
-
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => { el.removeEventListener('scroll', onScroll); clearTimeout(idleTimer); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Long-press detection on the main content area
+  // Long-press + swipe detection
   const handleTouchStart = (e: React.TouchEvent) => {
     if (isScrollingRef.current) return;
     touchStartXRef.current = e.touches[0].clientX;
     touchStartYRef.current = e.touches[0].clientY;
     directionRef.current = null;
     didMoveRef.current = false;
+    isDraggingRef.current = false;
+    setIsDragging(false);
     pressTimerRef.current = setTimeout(() => {
       onPressStart();
     }, LONG_PRESS_MS);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    const dx = Math.abs(e.touches[0].clientX - touchStartXRef.current);
+    const dx = e.touches[0].clientX - touchStartXRef.current;
     const dy = Math.abs(e.touches[0].clientY - touchStartYRef.current);
-    if (directionRef.current === null && (dx > 5 || dy > 5)) {
-      directionRef.current = dx > dy ? 'h' : 'v';
+    const adx = Math.abs(dx);
+
+    if (directionRef.current === null && (adx > 5 || dy > 5)) {
+      directionRef.current = adx > dy ? 'h' : 'v';
     }
-    if (dx > 5 || dy > 5) {
+
+    if (adx > 5 || dy > 5) {
       didMoveRef.current = true;
       if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
       onPressEnd();
+    }
+
+    if (directionRef.current === 'h') {
+      if (!isDraggingRef.current) {
+        isDraggingRef.current = true;
+        setIsDragging(true);
+      }
+      // Clamp: max ACTION_WIDTH in each direction, with resistance beyond threshold
+      const clamped = Math.max(-ACTION_WIDTH * 1.2, Math.min(ACTION_WIDTH * 1.2, dx));
+      setTranslateX(clamped);
     }
   };
 
   const handleTouchEnd = () => {
     if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
     onPressEnd();
-    if (!didMoveRef.current && !multiSelect) {
+
+    if (isDraggingRef.current) {
+      // Decide action based on how far swiped
+      if (translateX > THRESHOLD) {
+        // Swiped right → check/toggle (RTL: right = check)
+        if (!actionFiredRef.current) {
+          actionFiredRef.current = true;
+          onToggle();
+        }
+        resetPosition();
+      } else if (translateX < -THRESHOLD) {
+        // Swiped left → delete (RTL: left = delete)
+        if (!actionFiredRef.current) {
+          actionFiredRef.current = true;
+          onDelete();
+        }
+        resetPosition();
+      } else {
+        resetPosition();
+      }
+      isDraggingRef.current = false;
+      setIsDragging(false);
+    } else if (!didMoveRef.current && !multiSelect) {
       onTap();
     } else if (!didMoveRef.current && multiSelect) {
       onToggleSelect();
@@ -796,52 +800,48 @@ function SwipeRow({
   );
 
   return (
-    <div className="relative" style={{ borderRadius: 16 }}>
-      {/* Horizontally scrollable snap container — browser handles X/Y natively */}
+    <div className="relative" style={{ borderRadius: 16, overflow: 'hidden' }}>
+      {/* RIGHT action panel — revealed when swiping right */}
       <div
-        ref={scrollRef}
         style={{
-          display: 'flex',
-          overflowX: 'scroll',
-          overflowY: 'hidden',
-          scrollSnapType: 'x mandatory',
-          scrollbarWidth: 'none',
-          borderRadius: 16,
-          // Hide webkit scrollbar
-          WebkitOverflowScrolling: 'touch',
+          position: 'absolute', top: 0, right: 0, bottom: 0,
+          width: ACTION_WIDTH,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(45,122,45,0.85)',
+          borderRadius: '16px 0 0 16px',
+          opacity: translateX > 0 ? Math.min(translateX / ACTION_WIDTH, 1) : 0,
+          pointerEvents: 'none',
         }}
-        className="[&::-webkit-scrollbar]:hidden"
       >
-        {/* RIGHT action panel (swipe right = check/toggle) */}
-        <div
-          style={{
-            minWidth: ACTION_WIDTH, width: ACTION_WIDTH,
-            scrollSnapAlign: 'start',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(45,122,45,0.85)', borderRadius: '16px 0 0 16px',
-            flexShrink: 0,
-          }}
-        >
-          <Check size={24} color="white" />
-        </div>
+        <Check size={24} color="white" />
+      </div>
 
-        {/* MAIN content panel */}
-        <div style={{ minWidth: '100%', scrollSnapAlign: 'start', flexShrink: 0 }}>
-          {rowContent}
-        </div>
+      {/* LEFT action panel — revealed when swiping left */}
+      <div
+        style={{
+          position: 'absolute', top: 0, left: 0, bottom: 0,
+          width: ACTION_WIDTH,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(191,44,44,0.85)',
+          borderRadius: '0 16px 16px 0',
+          opacity: translateX < 0 ? Math.min(-translateX / ACTION_WIDTH, 1) : 0,
+          pointerEvents: 'none',
+        }}
+      >
+        <Trash2 size={24} color="white" />
+      </div>
 
-        {/* LEFT action panel (swipe left = delete) */}
-        <div
-          style={{
-            minWidth: ACTION_WIDTH, width: ACTION_WIDTH,
-            scrollSnapAlign: 'start',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(191,44,44,0.85)', borderRadius: '0 16px 16px 0',
-            flexShrink: 0,
-          }}
-        >
-          <Trash2 size={24} color="white" />
-        </div>
+      {/* MAIN content — slides with touch */}
+      <div
+        style={{
+          transform: `translateX(${translateX}px)`,
+          transition: isDragging ? 'none' : 'transform 0.2s ease',
+          borderRadius: 16,
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
+        {rowContent}
       </div>
 
       {/* ── TRASH button: absolute circle on top-left corner ── */}

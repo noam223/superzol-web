@@ -530,18 +530,13 @@ export default function ProductPage() {
                     <span className="text-sm font-semibold" style={{ color: '#4F483F' }}>{product.chain_count} רשתות</span>
                   </div>
                 )}
-                {product.has_promotion && product.promo_price && (
-                  <div className="flex items-center justify-between p-3 rounded-2xl"
+                {product.has_promotion && (
+                  <div className="flex items-center gap-2 p-3 rounded-2xl"
                     style={{ background: 'rgba(191,44,44,0.08)', border: '1px solid rgba(191,44,44,0.2)' }}>
-                    <div className="flex items-center gap-2">
-                      <Tag size={14} style={{ color: '#BF2C2C' }} />
-                      <p className="text-sm font-medium" style={{ color: '#BF2C2C' }}>
-                        {product.promo_description || 'מבצע'}
-                      </p>
-                    </div>
-                    <span className="text-base font-bold" style={{ color: '#BF2C2C' }}>
-                      ₪{product.promo_price.toFixed(2)}
-                    </span>
+                    <Tag size={14} style={{ color: '#BF2C2C' }} />
+                    <p className="text-sm font-medium" style={{ color: '#BF2C2C' }}>
+                      🏷️ במבצע — ראה פרטים בהשוואת מחירים
+                    </p>
                   </div>
                 )}
                 {(product.unit_qty || product.unit_of_measure) && (

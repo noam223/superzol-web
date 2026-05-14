@@ -150,6 +150,18 @@ export default function SearchPage() {
     setMatchingGroups(matched);
 
     try {
+      // If query looks like a barcode (8-14 digits), try direct item_code lookup first
+      const looksLikeBarcode = /^\d{8,14}$/.test(q.trim());
+      if (looksLikeBarcode) {
+        const product = await getProductByItemCode(q.trim());
+        if (product) {
+          setResults([product]);
+          setFound(1);
+          setLoading(false);
+          return;
+        }
+      }
+
       const { hits, found } = await searchProductsIndex(q, { perPage: 30, groupItemCodes: groupItemCodesRef.current });
       setResults(hits);
       setFound(found);

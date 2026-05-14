@@ -416,13 +416,13 @@ export default function SearchPage() {
                       )}
                     </div>
 
-                    {/* Promo */}
-                    {product.has_promotion && product.promo_price && (
+                    {/* Promo badge — populated after running 4_build_products_index.py */}
+                    {product.has_promotion && product.promo_description && (
                       <span
                         className="text-xs px-2 py-0.5 rounded-full self-start font-medium"
-                        style={{ background: 'rgba(191, 44, 44, 0.1)', color: '#BF2C2C' }}
+                        style={{ background: 'rgba(196, 122, 0, 0.12)', color: '#c47a00' }}
                       >
-                        🔥 מבצע ₪{product.promo_price.toFixed(2)}
+                        🏷️ {product.promo_description}
                       </span>
                     )}
                   </div>

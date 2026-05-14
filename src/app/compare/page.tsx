@@ -36,6 +36,7 @@ type ItemResult = {
   unit_price?: number | null;           // מחיר ל-100ג׳/מ״ל
   effective_price?: number | null;      // מחיר אחרי מבצע
   promotion_description?: string | null; // תיאור המבצע
+  promo_min_qty?: number | null;        // כמות מינימום לממש מבצע
   group_label?: string;
   resolved_item_code?: string;
   is_fresh_product?: boolean;
@@ -67,6 +68,15 @@ type IndexProduct = {
 };
 
 type Location = { lat: number; lng: number; label: string };
+
+type PromoSuggestion = {
+  item_code: string;
+  item_name: string;
+  current_qty: number;
+  suggested_qty: number;
+  promotion_description: string;
+  store_name: string;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -254,12 +264,14 @@ function MostCostEffectiveCard({
   totalItems: number;
   cheapestTotal: number; // total_price of rank-#1 store (for savings display)
 }) {
+  const [showDetail, setShowDetail] = useState(false);
   const coveragePct = Math.round((store.products_found / totalItems) * 100);
   const hasPromos = store.effective_total < store.total_price;
   const displayTotal = hasPromos ? store.effective_total : store.total_price;
   const savings = cheapestTotal - displayTotal;
 
   return (
+    <>
     <div
       className="rounded-3xl overflow-hidden mb-1"
       style={{
@@ -284,7 +296,7 @@ function MostCostEffectiveCard({
       </div>
 
       {/* Store info row */}
-      <div className="flex items-center gap-3 px-4 pb-3 pt-1">
+      <div className="flex items-center gap-3 px-4 pb-2 pt-1">
         {/* Chain logo */}
         <div className="shrink-0">
           {getChainLogoUrl(store.chain_name) ? (
@@ -320,7 +332,96 @@ function MostCostEffectiveCard({
           )}
         </div>
       </div>
+
+      {/* פירוט מוצרים button */}
+      <div className="px-4 pb-3">
+        <button
+          onClick={() => setShowDetail(true)}
+          className="w-full text-xs font-semibold py-2 rounded-2xl flex items-center justify-center gap-1.5"
+          style={{ background: 'rgba(176,120,0,0.12)', color: '#7a5500', border: '1px solid rgba(176,120,0,0.25)' }}
+        >
+          📋 פירוט מוצרים
+        </button>
+      </div>
     </div>
+
+    {/* Modal פירוט מוצרים */}
+    {showDetail && (
+      <>
+        <div
+          className="fixed inset-0 z-40"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={() => setShowDetail(false)}
+        />
+        <div
+          className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl overflow-hidden"
+          style={{ background: '#F5EDE3', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(182,171,156,0.3)' }}>
+            <h3 className="font-bold text-base" style={{ color: '#4F483F' }}>
+              ⭐ {store.store_name} — פירוט מוצרים
+            </h3>
+            <button onClick={() => setShowDetail(false)} style={{ color: '#8a7f75' }}>
+              <X size={20} />
+            </button>
+          </div>
+          {/* Items list */}
+          <div className="overflow-y-auto px-4 py-3 flex flex-col gap-2" style={{ overscrollBehavior: 'contain' }}>
+            {store.items.map((item, idx) => (
+              <div
+                key={`mce-${item.item_code}-${idx}`}
+                className="flex items-center gap-3 p-2.5 rounded-2xl"
+                style={{
+                  background: item.found ? 'rgba(255,255,255,0.7)' : 'rgba(191,44,44,0.06)',
+                  border: item.found ? '1px solid rgba(182,171,156,0.25)' : '1px solid rgba(191,44,44,0.2)',
+                }}
+              >
+                <ProductImg
+                  itemCode={item.group_label ? (item.image_item_code || item.item_code) : item.item_code}
+                  name={item.group_label || item.item_name}
+                  size={36}
+                />
+                <div className="flex-1 min-w-0">
+                  {item.group_label && (
+                    <p className="text-xs font-bold mb-0.5" style={{ color: '#BF2C2C' }}>📦 {item.group_label}</p>
+                  )}
+                  <p className="text-sm font-medium leading-tight" style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}>
+                    {item.found ? item.item_name : (item.group_label || item.item_name)}
+                  </p>
+                  <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>
+                  {item.promotion_description && (
+                    <p className="text-xs font-medium" style={{ color: '#c47a00' }}>🏷️ {item.promotion_description}</p>
+                  )}
+                </div>
+                {item.found && (
+                  <div className="text-right shrink-0">
+                    {item.effective_price != null && item.effective_price < item.price! ? (
+                      <>
+                        <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{(item.effective_price * item.quantity).toFixed(2)}</p>
+                        <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>₪{item.total!.toFixed(2)}</p>
+                      </>
+                    ) : (
+                      <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
+                    )}
+                    <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
+                  </div>
+                )}
+              </div>
+            ))}
+            {/* סיכום */}
+            <div className="mt-2 p-3 rounded-2xl flex items-center justify-between" style={{ background: 'rgba(176,120,0,0.1)', border: '1px solid rgba(176,120,0,0.2)' }}>
+              <span className="text-sm font-bold" style={{ color: '#7a5500' }}>סה&quot;כ</span>
+              <div className="text-right">
+                <p className="text-base font-bold" style={{ color: '#b07800' }}>₪{displayTotal.toFixed(2)}</p>
+                {hasPromos && <p className="text-xs line-through" style={{ color: '#8a7f75' }}>₪{store.total_price.toFixed(2)}</p>}
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    )}
+    </>
   );
 }
 
@@ -476,7 +577,7 @@ function StoreCard({
                       }
                     </p>
                   )}
-                  {item.quantity > 1 && <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>}
+                  <p className="text-xs" style={{ color: '#B6AB9C' }}>×{item.quantity}</p>
                 </div>
                 {item.found ? (
                   <div className="flex items-center gap-2 shrink-0">
@@ -504,7 +605,7 @@ function StoreCard({
                           <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
                           {item.is_fresh_product
                             ? <p className="text-xs" style={{ color: '#b05a00' }}>לק&quot;ג</p>
-                            : item.quantity > 1 && <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
+                            : <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.price!.toFixed(2)} ליח׳</p>
                           }
                         </>
                       )}
@@ -660,8 +761,40 @@ export default function ComparePage() {
   const [compareError, setCompareError] = useState('');
   const [compared, setCompared] = useState(false);
   const [currentItems, setCurrentItems] = useState<ListItem[]>([]);
+  const [showPromoFulfill, setShowPromoFulfill] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
+
+  // ── Compute promo-fulfillment suggestions ──
+  // For each item in currentItems, find the best promo_min_qty across all stores
+  // and suggest increasing quantity if promo_min_qty > current quantity
+  const promoSuggestions: PromoSuggestion[] = (() => {
+    const suggestions: PromoSuggestion[] = [];
+    for (const item of currentItems) {
+      let bestSuggestion: PromoSuggestion | null = null;
+      for (const store of stores) {
+        const storeItem = store.items.find(
+          si => si.item_code === item.item_code || si.resolved_item_code === item.item_code
+        );
+        if (!storeItem || !storeItem.found) continue;
+        const minQty = storeItem.promo_min_qty;
+        if (!minQty || minQty <= item.quantity) continue;
+        // This store has a promo that needs more quantity
+        if (!bestSuggestion || minQty < bestSuggestion.suggested_qty) {
+          bestSuggestion = {
+            item_code: item.item_code,
+            item_name: storeItem.item_name || item.item_name,
+            current_qty: item.quantity,
+            suggested_qty: minQty,
+            promotion_description: storeItem.promotion_description || 'מבצע',
+            store_name: store.store_name,
+          };
+        }
+      }
+      if (bestSuggestion) suggestions.push(bestSuggestion);
+    }
+    return suggestions;
+  })();
 
   // Load user + shopping list + saved location
   useEffect(() => {
@@ -870,6 +1003,43 @@ export default function ComparePage() {
     );
   }, [stores]);
 
+  // ── Handle promo fulfillment: update quantities in Supabase + re-compare ──
+  const handlePromoFulfill = useCallback(async (suggestions: PromoSuggestion[]) => {
+    const userId = userIdRef.current;
+    if (!userId) return;
+    setShowPromoFulfill(false);
+
+    // Update each item's quantity in Supabase
+    await Promise.all(
+      suggestions.map(s =>
+        supabase
+          .from('shopping_list_items')
+          .update({ quantity: s.suggested_qty })
+          .eq('user_id', userId)
+          .eq('item_code', s.item_code)
+      )
+    );
+
+    // Update local state
+    const updatedItems = currentItems.map(i => {
+      const suggestion = suggestions.find(s => s.item_code === i.item_code);
+      return suggestion ? { ...i, quantity: suggestion.suggested_qty } : i;
+    });
+    setCurrentItems(updatedItems);
+    setListItems(prev =>
+      prev.map(i => {
+        const suggestion = suggestions.find(s => s.item_code === i.item_code);
+        return suggestion ? { ...i, quantity: suggestion.suggested_qty } : i;
+      })
+    );
+
+    // Re-run compare with updated quantities
+    if (location) {
+      setCompared(false);
+      await runCompare(updatedItems, location, radiusKm);
+    }
+  }, [currentItems, location, radiusKm, runCompare]);
+
   // ── Loading ──
   if (loadingUser) {
     return (
@@ -1001,6 +1171,25 @@ export default function ComparePage() {
                   <p className="text-xs" style={{ color: '#8a7f75' }}>ממוינות לפי כיסוי ומחיר</p>
                 </div>
 
+                {/* מימוש מבצעים button — only shown when there are promo suggestions */}
+                {promoSuggestions.length > 0 && (
+                  <button
+                    onClick={() => setShowPromoFulfill(true)}
+                    className="w-full rounded-2xl px-4 py-3 flex flex-col items-center gap-0.5"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(196,122,0,0.12) 0%, rgba(196,122,0,0.08) 100%)',
+                      border: '1.5px solid rgba(196,122,0,0.35)',
+                    }}
+                  >
+                    <span className="text-sm font-bold" style={{ color: '#7a5500' }}>
+                      🏷️ מימוש מבצעים ({promoSuggestions.length})
+                    </span>
+                    <span className="text-xs" style={{ color: '#b07800' }}>
+                      *הוספת מוצרים כדי לממש מבצע
+                    </span>
+                  </button>
+                )}
+
                 {/* ⭐ Most cost-effective store — always shown above ranking table */}
                 {mostCostEffectiveKey && (() => {
                   const mceStore = stores.find(s => s.store_key === mostCostEffectiveKey);
@@ -1029,6 +1218,77 @@ export default function ComparePage() {
           </>
         )}
       </div>
+
+      {/* ── מימוש מבצעים modal ── */}
+      {showPromoFulfill && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            style={{ background: 'rgba(0,0,0,0.45)' }}
+            onClick={() => setShowPromoFulfill(false)}
+          />
+          <div
+            className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl overflow-hidden"
+            style={{ background: '#F5EDE3', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(182,171,156,0.3)' }}>
+              <h3 className="font-bold text-base" style={{ color: '#4F483F' }}>
+                🏷️ מימוש מבצעים
+              </h3>
+              <button onClick={() => setShowPromoFulfill(false)} style={{ color: '#8a7f75' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Subtitle */}
+            <p className="text-xs px-5 pt-3 pb-1" style={{ color: '#8a7f75' }}>
+              הוספת כמות מוצרים כדי לממש מבצע — לחץ &quot;אשר&quot; לעדכון הרשימה וחישוב מחדש
+            </p>
+
+            {/* Items list */}
+            <div className="overflow-y-auto px-4 py-3 flex flex-col gap-2" style={{ overscrollBehavior: 'contain' }}>
+              {promoSuggestions.map((s, idx) => (
+                <div
+                  key={`promo-${s.item_code}-${idx}`}
+                  className="flex items-center gap-3 p-3 rounded-2xl"
+                  style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(196,122,0,0.25)' }}
+                >
+                  <ProductImg itemCode={s.item_code} name={s.item_name} size={36} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>{s.item_name}</p>
+                    <p className="text-xs font-medium mt-0.5" style={{ color: '#c47a00' }}>🏷️ {s.promotion_description}</p>
+                    <p className="text-xs mt-0.5" style={{ color: '#8a7f75' }}>ב{s.store_name}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-xs" style={{ color: '#8a7f75' }}>כמות נוכחית</p>
+                    <p className="text-sm font-bold" style={{ color: '#4F483F' }}>×{s.current_qty}</p>
+                    <p className="text-xs mt-1" style={{ color: '#2d7a2d' }}>→ ×{s.suggested_qty}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Action buttons */}
+            <div className="px-4 pb-6 pt-3 flex gap-3" style={{ borderTop: '1px solid rgba(182,171,156,0.2)' }}>
+              <button
+                onClick={() => setShowPromoFulfill(false)}
+                className="flex-1 py-3 rounded-2xl text-sm font-semibold"
+                style={{ background: 'rgba(182,171,156,0.25)', color: '#4F483F' }}
+              >
+                ביטול
+              </button>
+              <button
+                onClick={() => handlePromoFulfill(promoSuggestions)}
+                className="flex-1 py-3 rounded-2xl text-sm font-bold"
+                style={{ background: 'linear-gradient(90deg,#c47a00,#e8a800)', color: 'white' }}
+              >
+                ✓ אשר ועדכן
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

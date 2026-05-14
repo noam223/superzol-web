@@ -171,6 +171,7 @@ export type ItemResult = {
   unit_price?: number | null;           // מחיר ל-100ג׳/מ״ל
   effective_price?: number | null;      // מחיר אחרי מבצע (אם קיים)
   promotion_description?: string | null; // תיאור המבצע (לתצוגה)
+  promo_min_qty?: number | null;        // כמות מינימום לממש מבצע
   // Group item fields
   group_label?: string;       // Display name of the group (e.g. "שמן קנולה/חמניות")
   resolved_item_code?: string; // Actual barcode that was found (same as item_code when found)
@@ -420,6 +421,7 @@ export async function POST(request: NextRequest) {
               let bestUnitPrice: number | null = null;
               let bestEffectivePrice: number | null = null;
               let bestPromoDesc: string | null = null;
+              let bestPromoMinQty: number | null = null;
               let bestCompareValue: number | null = null; // unit_price or item_price
 
               for (const sid of variants) {
@@ -441,6 +443,7 @@ export async function POST(request: NextRequest) {
                     bestName = doc.item_name;
                     bestUnitPrice = doc.unit_price ?? null;
                     bestPromoDesc = doc.promotion_description ?? null;
+                    bestPromoMinQty = doc.promo_min_qty ?? null;
                     bestEffectivePrice = calcEffectivePrice(
                       doc.item_price,
                       doc.promo_price,
@@ -468,6 +471,7 @@ export async function POST(request: NextRequest) {
                   unit_price: bestUnitPrice,
                   effective_price: bestEffectivePrice,
                   promotion_description: bestPromoDesc,
+                  promo_min_qty: bestPromoMinQty,
                   group_label: item.group_label,
                   resolved_item_code: bestCode,
                   is_fresh_product: item.is_fresh_product,

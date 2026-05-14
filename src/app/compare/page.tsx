@@ -711,6 +711,34 @@ function LocationStep({ onLocate }: { onLocate: (lat: number, lng: number, label
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// ─── Session persistence key ──────────────────────────────────────────────────
+const COMPARE_SESSION_KEY = 'superzol_compare_session';
+
+type CompareSession = {
+  stores: StoreResult[];
+  mostCostEffectiveKey: string | null;
+  location: Location;
+  radiusKm: number;
+  currentItems: ListItem[];
+  promoFulfilled: boolean;
+  originalItems: ListItem[];
+};
+
+function saveSession(data: CompareSession) {
+  try { sessionStorage.setItem(COMPARE_SESSION_KEY, JSON.stringify(data)); } catch { /* ignore */ }
+}
+
+function loadSession(): CompareSession | null {
+  try {
+    const raw = sessionStorage.getItem(COMPARE_SESSION_KEY);
+    return raw ? (JSON.parse(raw) as CompareSession) : null;
+  } catch { return null; }
+}
+
+function clearSession() {
+  try { sessionStorage.removeItem(COMPARE_SESSION_KEY); } catch { /* ignore */ }
+}
+
 export default function ComparePage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [loadingUser, setLoadingUser] = useState(true);
@@ -727,6 +755,7 @@ export default function ComparePage() {
   const originalItemsRef = useRef<ListItem[]>([]); // snapshot of quantities before promo fulfillment
   const resultsRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
+  const sessionRestoredRef = useRef(false); // prevent auto-compare from firing before session restore
 
   // ── Compute promo-fulfillment suggestions ──
   // For each item in currentItems, find the best promo_min_qty across all stores
@@ -758,6 +787,23 @@ export default function ComparePage() {
     }
     return suggestions;
   })();
+
+  // ── Restore session on mount (before loading user) ──
+  useEffect(() => {
+    const session = loadSession();
+    if (session) {
+      setStores(session.stores);
+      setMostCostEffectiveKey(session.mostCostEffectiveKey);
+      setLocation(session.location);
+      setRadiusKm(session.radiusKm);
+      setCurrentItems(session.currentItems);
+      setPromoFulfilled(session.promoFulfilled);
+      originalItemsRef.current = session.originalItems;
+      setCompared(true);
+      sessionRestoredRef.current = true;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load user + shopping list + saved location
   useEffect(() => {
@@ -836,7 +882,7 @@ export default function ComparePage() {
     });
   }, []);
 
-  const runCompare = useCallback(async (items: ListItem[], loc: Location, radius: number) => {
+  const runCompare = useCallback(async (items: ListItem[], loc: Location, radius: number, promoFulfilledState = false, originalItems: ListItem[] = []) => {
     setComparing(true);
     setCompareError('');
     setStores([]);
@@ -849,9 +895,21 @@ export default function ComparePage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'שגיאה');
-      setStores(data.stores || []);
-      setMostCostEffectiveKey(data.most_cost_effective_key ?? null);
+      const newStores: StoreResult[] = data.stores || [];
+      const newMceKey: string | null = data.most_cost_effective_key ?? null;
+      setStores(newStores);
+      setMostCostEffectiveKey(newMceKey);
       setCompared(true);
+      // Persist session so navigation away and back restores results
+      saveSession({
+        stores: newStores,
+        mostCostEffectiveKey: newMceKey,
+        location: loc,
+        radiusKm: radius,
+        currentItems: items,
+        promoFulfilled: promoFulfilledState,
+        originalItems,
+      });
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } catch (e) {
       setCompareError((e as Error).message || 'שגיאה בהשוואה');
@@ -859,14 +917,20 @@ export default function ComparePage() {
     setComparing(false);
   }, []);
 
-  // Auto-compare when location + items ready
+  // Auto-compare when location + items ready (skip if session was just restored)
   useEffect(() => {
+    if (sessionRestoredRef.current) {
+      // Session was restored — don't auto-compare, but clear the flag so future changes work
+      sessionRestoredRef.current = false;
+      return;
+    }
     if (location && currentItems.length > 0 && !compared && !comparing) {
       runCompare(currentItems, location, radiusKm);
     }
   }, [location, currentItems, compared, comparing, radiusKm, runCompare]);
 
   const handleLocate = (lat: number, lng: number, label: string) => {
+    clearSession(); // new location = fresh compare
     const loc = { lat, lng, label };
     setLocation(loc);
     setCompared(false);
@@ -950,13 +1014,12 @@ export default function ComparePage() {
     }
 
     // Update currentItems so re-compare uses the new item code
-    setCurrentItems(prev =>
-      prev.map(i =>
-        i.item_code === oldCode
-          ? { ...i, item_code: newItem.item_code, item_name: newItem.item_name }
-          : i
-      )
+    const updatedCurrentItems = currentItems.map(i =>
+      i.item_code === oldCode
+        ? { ...i, item_code: newItem.item_code, item_name: newItem.item_name }
+        : i
     );
+    setCurrentItems(updatedCurrentItems);
     setListItems(prev =>
       prev.map(i =>
         i.item_code === oldCode
@@ -964,7 +1027,20 @@ export default function ComparePage() {
           : i
       )
     );
-  }, [stores]);
+
+    // Persist updated session
+    if (location) {
+      saveSession({
+        stores: sortedStores,
+        mostCostEffectiveKey,
+        location,
+        radiusKm,
+        currentItems: updatedCurrentItems,
+        promoFulfilled,
+        originalItems: originalItemsRef.current,
+      });
+    }
+  }, [stores, currentItems, location, radiusKm, mostCostEffectiveKey, promoFulfilled]);
 
   // ── Handle promo fulfillment: update quantities in Supabase + re-compare ──
   const handlePromoFulfill = useCallback(async (suggestions: PromoSuggestion[]) => {
@@ -972,7 +1048,8 @@ export default function ComparePage() {
     if (!userId) return;
 
     // Snapshot original quantities before modifying anything
-    originalItemsRef.current = currentItems.map(i => ({ ...i }));
+    const snapshot = currentItems.map(i => ({ ...i }));
+    originalItemsRef.current = snapshot;
 
     // Update each item's quantity in Supabase
     await Promise.all(
@@ -993,10 +1070,10 @@ export default function ComparePage() {
     setCurrentItems(updatedItems);
     setPromoFulfilled(true);
 
-    // Re-run compare with updated quantities
+    // Re-run compare with updated quantities (pass promoFulfilled=true + snapshot for session)
     if (location) {
       setCompared(false);
-      await runCompare(updatedItems, location, radiusKm);
+      await runCompare(updatedItems, location, radiusKm, true, snapshot);
     }
   }, [currentItems, location, radiusKm, runCompare]);
 
@@ -1026,7 +1103,7 @@ export default function ComparePage() {
 
     if (location) {
       setCompared(false);
-      await runCompare(originals, location, radiusKm);
+      await runCompare(originals, location, radiusKm, false, []);
     }
   }, [location, radiusKm, runCompare]);
 
@@ -1080,7 +1157,7 @@ export default function ComparePage() {
                 <div className="flex items-center gap-1 mr-auto">
                   <MapPin size={14} style={{ color: '#BF2C2C' }} />
                   <span className="text-xs" style={{ color: '#8a7f75' }}>{location.label}</span>
-                  <button onClick={() => { setLocation(null); setStores([]); setCompared(false); }} style={{ color: '#8a7f75', marginRight: 4 }}>
+                  <button onClick={() => { clearSession(); setLocation(null); setStores([]); setCompared(false); setPromoFulfilled(false); originalItemsRef.current = []; }} style={{ color: '#8a7f75', marginRight: 4 }}>
                     <X size={14} />
                   </button>
                 </div>

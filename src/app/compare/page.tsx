@@ -33,8 +33,9 @@ type ItemResult = {
   found: boolean;
   price: number | null;
   total: number | null;
-  unit_price?: number | null;      // מחיר ל-100ג׳/מ״ל
-  effective_price?: number | null; // מחיר אחרי מבצע
+  unit_price?: number | null;           // מחיר ל-100ג׳/מ״ל
+  effective_price?: number | null;      // מחיר אחרי מבצע
+  promotion_description?: string | null; // תיאור המבצע
   group_label?: string;
   resolved_item_code?: string;
   is_fresh_product?: boolean;
@@ -478,7 +479,14 @@ function StoreCard({
                           <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>
                             ₪{item.total!.toFixed(2)}
                           </p>
-                          <p className="text-xs font-medium" style={{ color: '#2d7a2d' }}>🏷️ מבצע</p>
+                          <p className="text-xs font-medium" style={{ color: '#2d7a2d' }}>
+                            🏷️ {item.promotion_description || 'מבצע'}
+                          </p>
+                        </>
+                      ) : item.promotion_description ? (
+                        <>
+                          <p className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
+                          <p className="text-xs font-medium" style={{ color: '#c47a00' }}>🏷️ {item.promotion_description}</p>
                         </>
                       ) : (
                         <>

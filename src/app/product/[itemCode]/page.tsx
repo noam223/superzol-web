@@ -25,7 +25,13 @@ type NearbyStore = {
   store_name: string;
   distance_km: number;
   total_price: number;
-  items: { found: boolean; price: number | null }[];
+  effective_total?: number;
+  items: {
+    found: boolean;
+    price: number | null;
+    effective_price?: number | null;
+    promotion_description?: string | null;
+  }[];
 };
 
 type PriceHistoryRow = {
@@ -417,11 +423,31 @@ export default function ProductPage() {
                           <p className="text-xs" style={{ color: '#8a7f75' }}>
                             {store.chain_name} · {store.distance_km.toFixed(1)} ק&quot;מ
                           </p>
+                          {/* מבצע — תיאור + מחיר אפקטיבי */}
+                          {store.items[0]?.promotion_description && (
+                            <p className="text-xs font-medium mt-0.5" style={{ color: '#c47a00' }}>
+                              🏷️ {store.items[0].promotion_description}
+                            </p>
+                          )}
                         </div>
-                        <span className="text-base font-bold"
-                          style={{ color: isCheapest ? '#2d7a2d' : isMostExpensive ? '#BF2C2C' : '#4F483F' }}>
-                          ₪{store.total_price.toFixed(2)}
-                        </span>
+                        <div className="text-right shrink-0">
+                          {store.items[0]?.effective_price != null &&
+                           store.items[0].effective_price < (store.items[0].price ?? Infinity) ? (
+                            <>
+                              <p className="text-base font-bold" style={{ color: '#2d7a2d' }}>
+                                ₪{store.items[0].effective_price.toFixed(2)}
+                              </p>
+                              <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>
+                                ₪{store.total_price.toFixed(2)}
+                              </p>
+                            </>
+                          ) : (
+                            <span className="text-base font-bold"
+                              style={{ color: isCheapest ? '#2d7a2d' : isMostExpensive ? '#BF2C2C' : '#4F483F' }}>
+                              ₪{store.total_price.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

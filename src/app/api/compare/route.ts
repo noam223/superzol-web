@@ -35,11 +35,12 @@ const BATCH_CHUNK_SIZE = 50; // IDs per sub-query; keeps filter_by well under 40
 type DocData = {
   item_price: number;
   item_name: string;
-  unit_price?: number;      // מחיר ל-100ג׳/מ״ל
-  promo_price?: number;     // מחיר מבצע (discounted_price)
-  promo_min_qty?: number;   // כמות מינימום למבצע
-  reward_type?: number;     // 1/3=מחיר קבוע, 10=עסקת כמות (6=מתנה — מדולג)
-  b_is_weighted?: boolean;  // מוצר שקיל (נמכר לפי משקל)
+  unit_price?: number;             // מחיר ל-100ג׳/מ״ל
+  promo_price?: number;            // מחיר מבצע (discounted_price)
+  promo_min_qty?: number;          // כמות מינימום למבצע
+  reward_type?: number;            // 1/3=מחיר קבוע, 10=עסקת כמות (6=מתנה — מדולג)
+  b_is_weighted?: boolean;         // מוצר שקיל (נמכר לפי משקל)
+  promotion_description?: string;  // תיאור המבצע (לתצוגה)
 };
 
 async function tsBatchGetDocs(
@@ -61,7 +62,7 @@ async function tsBatchGetDocs(
     query_by: 'item_name',
     filter_by: `id:[${chunk.map(id => `\`${id}\``).join(',')}]`,
     per_page: chunk.length,
-    include_fields: 'id,item_price,item_name,unit_price,promo_price,promo_min_qty,reward_type,b_is_weighted',
+    include_fields: 'id,item_price,item_name,unit_price,promo_price,promo_min_qty,reward_type,b_is_weighted,promotion_description',
   }));
 
   const res = await fetch(`${TS_BASE}/multi_search`, {
@@ -166,8 +167,9 @@ export type ItemResult = {
   found: boolean;
   price: number | null;
   total: number | null;
-  unit_price?: number | null;      // מחיר ל-100ג׳/מ״ל
-  effective_price?: number | null; // מחיר אחרי מבצע (אם קיים)
+  unit_price?: number | null;           // מחיר ל-100ג׳/מ״ל
+  effective_price?: number | null;      // מחיר אחרי מבצע (אם קיים)
+  promotion_description?: string | null; // תיאור המבצע (לתצוגה)
   // Group item fields
   group_label?: string;       // Display name of the group (e.g. "שמן קנולה/חמניות")
   resolved_item_code?: string; // Actual barcode that was found (same as item_code when found)
@@ -416,6 +418,7 @@ export async function POST(request: NextRequest) {
               let bestName: string | null = null;
               let bestUnitPrice: number | null = null;
               let bestEffectivePrice: number | null = null;
+              let bestPromoDesc: string | null = null;
               let bestCompareValue: number | null = null; // unit_price or item_price
 
               for (const sid of variants) {
@@ -436,6 +439,7 @@ export async function POST(request: NextRequest) {
                     bestCode = code;
                     bestName = doc.item_name;
                     bestUnitPrice = doc.unit_price ?? null;
+                    bestPromoDesc = doc.promotion_description ?? null;
                     bestEffectivePrice = calcEffectivePrice(
                       doc.item_price,
                       doc.promo_price,
@@ -462,6 +466,7 @@ export async function POST(request: NextRequest) {
                   total,
                   unit_price: bestUnitPrice,
                   effective_price: bestEffectivePrice,
+                  promotion_description: bestPromoDesc,
                   group_label: item.group_label,
                   resolved_item_code: bestCode,
                   is_fresh_product: item.is_fresh_product,
@@ -478,6 +483,7 @@ export async function POST(request: NextRequest) {
                   total: null,
                   unit_price: null,
                   effective_price: null,
+                  promotion_description: null,
                   group_label: item.group_label,
                   is_fresh_product: item.is_fresh_product,
                   image_item_code: item.image_item_code,

@@ -36,8 +36,9 @@ type DocData = {
   item_price: number;
   item_name: string;
   unit_price?: number;             // מחיר ל-100ג׳/מ״ל
-  promo_price?: number;            // מחיר מבצע (discounted_price)
-  promo_min_qty?: number;          // כמות מינימום למבצע
+  promo_price?: number;            // מחיר מבצע per-unit (DiscountedPrice from XML)
+  promo_min_qty?: number;          // כמות מינימום למבצע (MinQty)
+  promo_max_qty?: number;          // מקסימום מימושים (AllowMultipleDiscounts / NumberOfLimits)
   reward_type?: number;            // 1/3=מחיר קבוע, 10=עסקת כמות (6=מתנה — מדולג)
   b_is_weighted?: boolean;         // מוצר שקיל (נמכר לפי משקל)
   promotion_description?: string;  // תיאור המבצע (לתצוגה)
@@ -62,7 +63,7 @@ async function tsBatchGetDocs(
     query_by: 'item_name',
     filter_by: `id:[${chunk.map(id => `\`${id}\``).join(',')}]`,
     per_page: chunk.length,
-    include_fields: 'id,item_price,item_name,unit_price,promo_price,promo_min_qty,reward_type,b_is_weighted,promotion_description',
+    include_fields: 'id,item_price,item_name,unit_price,promo_price,promo_min_qty,promo_max_qty,reward_type,b_is_weighted,promotion_description',
   }));
 
   const res = await fetch(`${TS_BASE}/multi_search`, {
@@ -88,6 +89,7 @@ async function tsBatchGetDocs(
           unit_price:            doc.unit_price            ?? undefined,
           promo_price:           doc.promo_price           ?? undefined,
           promo_min_qty:         doc.promo_min_qty         ?? undefined,
+          promo_max_qty:         doc.promo_max_qty         ?? undefined,
           reward_type:           doc.reward_type           ?? undefined,
           b_is_weighted:         doc.b_is_weighted         ?? undefined,
           promotion_description: doc.promotion_description ?? undefined,
@@ -120,10 +122,26 @@ function storeIdVariants(storeId: string): string[] {
 }
 
 /**
- * Calculate the effective (promo-adjusted) price for an item.
- * RewardType 1, 3 → fixed discounted price (apply when qty >= min_qty)
- * RewardType 10   → quantity deal (apply when qty >= min_qty)
- * RewardType 6    → gift item — skipped in pipeline, never reaches here
+ * Calculate the effective (promo-adjusted) per-unit price for an item.
+ *
+ * XML semantics (confirmed from real data):
+ *   rewardType=1  → DiscountedPrice is the BUNDLE TOTAL for MinQty units
+ *                   e.g. "5 ב-9.90": disc=9.90, minQty=5 → per-unit=1.98
+ *   rewardType=10 → DiscountedPrice is the BUNDLE TOTAL for MinQty units
+ *                   e.g. "4 ב-10": disc=10.00, minQty=4 → per-unit=2.50
+ *   rewardType=3  → DiscountedPrice is the PER-UNIT discounted price
+ *                   e.g. "ב-10": disc=10.00, minQty=1 → per-unit=10.00
+ *
+ * promo_max_qty = max number of bundle redemptions (from AllowMultipleDiscounts/RedemptionLimit)
+ *   0 or null = unlimited
+ *
+ * For "2 ב-45" (rewardType=1, disc=45, minQty=2):
+ *   - quantity=1 → no promo → 24.90/unit
+ *   - quantity=2 → 1 bundle → 22.50/unit (total ₪45)
+ *   - quantity=3 → 1 bundle (2 units at ₪22.50) + 1 at ₪24.90 → avg ₪23.43/unit
+ *   - quantity=4 → 2 bundles → 22.50/unit (total ₪90)
+ *
+ * RewardType 6 (gift) is skipped in the pipeline before reaching here.
  * Returns itemPrice unchanged if promo doesn't apply or is not cheaper.
  */
 function calcEffectivePrice(
@@ -132,35 +150,44 @@ function calcEffectivePrice(
   promoMinQty?: number,
   rewardType?: number,
   quantity = 1,
+  promoMaxQty?: number,  // max bundle redemptions (0 = unlimited)
 ): number {
   if (!promoPrice || promoPrice <= 0) return itemPrice;
   const minQty = promoMinQty && promoMinQty > 0 ? promoMinQty : 1;
 
-  if (rewardType === 1) {
-    // "X items for Y price" — promoPrice is the bundle total for minQty units.
-    // Per-unit effective price = promoPrice / minQty (applies to all full bundles).
-    if (quantity >= minQty) {
-      const perUnit = promoPrice / minQty;
-      return perUnit < itemPrice ? perUnit : itemPrice;
-    }
-    return itemPrice;
+  // Only apply for known reward types
+  if (rewardType !== 1 && rewardType !== 3 && rewardType !== 10) return itemPrice;
+
+  if (quantity < minQty) return itemPrice;
+
+  // Determine per-unit promo price based on reward type
+  let perUnitPromoPrice: number;
+  if (rewardType === 1 || rewardType === 10) {
+    // promoPrice is the bundle total → divide by minQty to get per-unit
+    perUnitPromoPrice = promoPrice / minQty;
+  } else {
+    // rewardType=3: promoPrice is already per-unit
+    perUnitPromoPrice = promoPrice;
   }
 
-  if (rewardType === 3) {
-    // "Buy X get discount" — promoPrice is the discounted per-unit price.
-    if (promoPrice >= itemPrice) return itemPrice;
-    return quantity >= minQty ? promoPrice : itemPrice;
+  // Only apply if promo is actually cheaper
+  if (perUnitPromoPrice >= itemPrice) return itemPrice;
+
+  // How many full bundles fit in quantity (capped by max redemptions if set)
+  const maxBundles = promoMaxQty && promoMaxQty > 0 ? promoMaxQty : Infinity;
+  const fullBundles = Math.min(Math.floor(quantity / minQty), maxBundles);
+  const promoUnits = fullBundles * minQty;
+  const regularUnits = quantity - promoUnits;
+
+  if (regularUnits === 0) {
+    // All units covered by promo bundles
+    return perUnitPromoPrice;
   }
 
-  if (rewardType === 10) {
-    // Percentage or fixed discount — promoPrice is the discounted per-unit price.
-    if (promoPrice >= itemPrice) return itemPrice;
-    return quantity >= minQty ? promoPrice : itemPrice;
-  }
-
-  // Fallback: treat promoPrice as per-unit discounted price
-  if (promoPrice < itemPrice && quantity >= minQty) return promoPrice;
-  return itemPrice;
+  // Mixed: some units at promo price, remainder at regular price
+  // Return weighted average per-unit price
+  const totalCost = promoUnits * perUnitPromoPrice + regularUnits * itemPrice;
+  return totalCost / quantity;
 }
 
 export type StoreResult = {
@@ -441,6 +468,7 @@ export async function POST(request: NextRequest) {
               let bestEffectivePrice: number | null = null;
               let bestPromoDesc: string | null = null;
               let bestPromoMinQty: number | null = null;
+              let bestPromoMaxQty: number | null = null;
               let bestCompareValue: number | null = null; // unit_price or item_price
 
               for (const sid of variants) {
@@ -463,12 +491,14 @@ export async function POST(request: NextRequest) {
                     bestUnitPrice = doc.unit_price ?? null;
                     bestPromoDesc = doc.promotion_description ?? null;
                     bestPromoMinQty = doc.promo_min_qty ?? null;
+                    bestPromoMaxQty = doc.promo_max_qty ?? null;
                     bestEffectivePrice = calcEffectivePrice(
                       doc.item_price,
                       doc.promo_price,
                       doc.promo_min_qty,
                       doc.reward_type,
                       item.quantity,
+                      doc.promo_max_qty,
                     );
                   }
                 }

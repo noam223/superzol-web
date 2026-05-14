@@ -48,24 +48,32 @@ async function getNearbyChainIds(lat: number, lng: number, radius_km = 15): Prom
 /**
  * Given a set of nearby chain IDs and a list of item_codes, returns the subset
  * of item_codes that are available in at least one nearby chain.
- * Uses batch search (filter_by item_code:[...]) per chain to minimize requests.
+ * Queries products_index (where item_code IS a facet) to find available codes,
+ * then cross-checks against nearby chain collections via regular hits (not facets,
+ * since item_code is not a facet in products_* collections).
  */
 async function filterItemCodesByNearbyChains(
   itemCodes: string[],
   nearbyChainIds: Set<string>,
 ): Promise<Set<string>> {
-  if (itemCodes.length === 0 || nearbyChainIds.size === 0) return new Set(itemCodes);
+  if (itemCodes.length === 0) return new Set(itemCodes);
+
+  // If no nearby chains detected, fall back to showing all results
+  if (nearbyChainIds.size === 0) return new Set(itemCodes);
 
   const nearbyCollections = CHAIN_COLLECTIONS.filter(col => {
     const chainId = col.replace('products_', '');
     return nearbyChainIds.has(chainId);
   });
 
+  // If none of the known chain collections match nearby chains, show all
   if (nearbyCollections.length === 0) return new Set(itemCodes);
 
   const found = new Set<string>();
   const codeList = itemCodes.join(',');
 
+  // Query each nearby chain's products_* collection using regular hits
+  // (item_code is NOT a facet in products_* — use per_page hits instead)
   await Promise.all(
     nearbyCollections.map(async (collection) => {
       try {
@@ -75,15 +83,14 @@ async function filterItemCodesByNearbyChains(
           query_by: 'item_name',
           filter_by: `item_code:[${codeList}]`,
           per_page: '250',
-          facet_by: 'item_code',
-          max_facet_values: '250',
+          include_fields: 'item_code',
         });
         const res = await fetch(`/api/search?${params}`);
         if (!res.ok) return;
         const data = await res.json();
-        const facet = data.facet_counts?.find((f: { field_name: string }) => f.field_name === 'item_code');
-        for (const c of (facet?.counts || [])) {
-          found.add(c.value);
+        for (const hit of (data.hits || [])) {
+          const code = hit.document?.item_code;
+          if (code) found.add(code);
         }
       } catch { /* skip */ }
     })

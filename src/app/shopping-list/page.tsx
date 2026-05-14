@@ -878,6 +878,7 @@ export default function ShoppingListPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [outOfRangeIds, setOutOfRangeIds] = useState<Set<string>>(new Set());
+  const [listStoreName, setListStoreName] = useState<string | null>(null);
 
   // Multi-select state
   const [multiSelect, setMultiSelect] = useState(false);
@@ -904,6 +905,14 @@ export default function ShoppingListPage() {
       window.removeEventListener('scroll', onScroll);
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     };
+  }, []);
+
+  // Read store name from sessionStorage (set by compare page "עדכון רשימה" button)
+  useEffect(() => {
+    try {
+      const name = sessionStorage.getItem('superzol_list_store');
+      if (name) setListStoreName(name);
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
@@ -1035,9 +1044,21 @@ export default function ShoppingListPage() {
 
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
-          <h1 className="text-xl font-bold" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
-            רשימת קניות שלי
-          </h1>
+          <div>
+            <h1 className="text-xl font-bold" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
+              רשימת קניות שלי
+            </h1>
+            {listStoreName && (
+              <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: '#2d7a2d' }}>
+                🛒 מותאמת ל{listStoreName}
+                <button
+                  onClick={() => { try { sessionStorage.removeItem('superzol_list_store'); } catch { /* ignore */ } setListStoreName(null); }}
+                  style={{ color: '#8a7f75', marginRight: 2 }}
+                  title="נקה"
+                >✕</button>
+              </p>
+            )}
+          </div>
           {!multiSelect && checked.length > 0 && (
             <button
               onClick={clearChecked}

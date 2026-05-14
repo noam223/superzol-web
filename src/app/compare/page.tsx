@@ -398,17 +398,21 @@ function MostCostEffectiveCard({
 // ─── StoreCard ────────────────────────────────────────────────────────────────
 
 function StoreCard({
-  store, rank, totalItems, onReplace,
+  store, rank, totalItems, onReplace, onUpdateList,
 }: {
   store: StoreResult;
   rank: number;
   totalItems: number;
   onReplace: (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number) => Promise<void>;
+  onUpdateList: (store: StoreResult) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [substituteFor, setSubstituteFor] = useState<ItemResult | null>(null);
+  const [updatingList, setUpdatingList] = useState(false);
   const coveragePct = Math.round((store.products_found / totalItems) * 100);
   const isTop = rank === 1;
+  const hasPromos = store.effective_total < store.total_price;
+  const displayTotal = hasPromos ? store.effective_total : store.total_price;
 
   // Rank medal colors: gold / silver / bronze / plain
   const medalColors: Record<number, { bg: string; text: string; border: string; shadow: string }> = {
@@ -484,7 +488,10 @@ function StoreCard({
 
           {/* Price */}
           <div className="shrink-0 text-right">
-            <p className="font-bold text-base" style={{ color: isTop ? '#b07800' : '#4F483F' }}>₪{store.total_price.toFixed(2)}</p>
+            <p className="font-bold text-base" style={{ color: isTop ? '#b07800' : '#4F483F' }}>₪{displayTotal.toFixed(2)}</p>
+            {hasPromos && (
+              <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>₪{store.total_price.toFixed(2)}</p>
+            )}
             <p className="text-xs" style={{ color: '#8a7f75' }}>לפריטים שנמצאו</p>
           </div>
           <div style={{ color: '#8a7f75', flexShrink: 0 }}>
@@ -505,6 +512,24 @@ function StoreCard({
         {/* Product list accordion */}
         {open && (
           <div className="px-4 pb-4 pt-2 flex flex-col gap-2">
+            {/* עדכון רשימה button */}
+            <button
+              onClick={async () => { setUpdatingList(true); await onUpdateList(store); setUpdatingList(false); }}
+              disabled={updatingList}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl text-sm font-bold"
+              style={{
+                background: 'linear-gradient(135deg, rgba(45,122,45,0.12) 0%, rgba(45,122,45,0.08) 100%)',
+                border: '1.5px solid rgba(45,122,45,0.35)',
+                color: '#2d7a2d',
+                opacity: updatingList ? 0.7 : 1,
+              }}
+            >
+              {updatingList
+                ? <div className="animate-spin w-4 h-4 border-2 rounded-full" style={{ borderColor: 'rgba(45,122,45,0.3)', borderTopColor: '#2d7a2d' }} />
+                : '🛒'}
+              {updatingList ? 'מעדכן...' : `עדכן רשימה לפי ${store.store_name}`}
+            </button>
+
             {store.items.map((item, idx) => (
               <div
                 key={`${item.item_code}-${idx}`}
@@ -1042,27 +1067,14 @@ export default function ComparePage() {
     }
   }, [stores, currentItems, location, radiusKm, mostCostEffectiveKey, promoFulfilled]);
 
-  // ── Handle promo fulfillment: update quantities in Supabase + re-compare ──
+  // ── Handle promo fulfillment: LOCAL only — no Supabase update ──
+  // Quantity changes are only for the compare view; use "עדכון רשימה" to persist to Supabase
   const handlePromoFulfill = useCallback(async (suggestions: PromoSuggestion[]) => {
-    const userId = userIdRef.current;
-    if (!userId) return;
-
     // Snapshot original quantities before modifying anything
     const snapshot = currentItems.map(i => ({ ...i }));
     originalItemsRef.current = snapshot;
 
-    // Update each item's quantity in Supabase
-    await Promise.all(
-      suggestions.map(s =>
-        supabase
-          .from('shopping_list_items')
-          .update({ quantity: s.suggested_qty })
-          .eq('user_id', userId)
-          .eq('item_code', s.item_code)
-      )
-    );
-
-    // Update local state (only currentItems — listItems stays as original)
+    // Update local state only (currentItems — listItems stays as original)
     const updatedItems = currentItems.map(i => {
       const suggestion = suggestions.find(s => s.item_code === i.item_code);
       return suggestion ? { ...i, quantity: suggestion.suggested_qty } : i;
@@ -1077,24 +1089,10 @@ export default function ComparePage() {
     }
   }, [currentItems, location, radiusKm, runCompare]);
 
-  // ── Handle promo cancel: restore original quantities from snapshot ──
+  // ── Handle promo cancel: restore original quantities (local only) ──
   const handlePromoCancel = useCallback(async () => {
-    const userId = userIdRef.current;
-    if (!userId) return;
-
     const originals = originalItemsRef.current;
     if (originals.length === 0) return;
-
-    // Restore original quantities in Supabase
-    await Promise.all(
-      originals.map(i =>
-        supabase
-          .from('shopping_list_items')
-          .update({ quantity: i.quantity })
-          .eq('user_id', userId)
-          .eq('item_code', i.item_code)
-      )
-    );
 
     setCurrentItems(originals);
     setListItems(originals);
@@ -1106,6 +1104,38 @@ export default function ComparePage() {
       await runCompare(originals, location, radiusKm, false, []);
     }
   }, [location, radiusKm, runCompare]);
+
+  // ── Handle "עדכון רשימה": write a specific store's quantities + promo prices to Supabase ──
+  const handleUpdateList = useCallback(async (store: StoreResult) => {
+    const userId = userIdRef.current;
+    if (!userId) return;
+
+    // Update each found item's quantity in Supabase to match this store's quantities
+    await Promise.all(
+      store.items
+        .filter(i => i.found)
+        .map(i =>
+          supabase
+            .from('shopping_list_items')
+            .update({ quantity: i.quantity })
+            .eq('user_id', userId)
+            .eq('item_code', i.item_code)
+        )
+    );
+
+    // Save store name to sessionStorage so shopping list header can show it
+    try {
+      sessionStorage.setItem('superzol_list_store', store.store_name);
+    } catch { /* ignore */ }
+
+    // Update listItems to reflect the new quantities
+    setListItems(prev =>
+      prev.map(li => {
+        const storeItem = store.items.find(si => si.item_code === li.item_code || si.resolved_item_code === li.item_code);
+        return storeItem?.found ? { ...li, quantity: storeItem.quantity } : li;
+      })
+    );
+  }, []);
 
   // ── Loading ──
   if (loadingUser) {
@@ -1282,6 +1312,7 @@ export default function ComparePage() {
                     rank={idx + 1}
                     totalItems={currentItems.length}
                     onReplace={handleReplace}
+                    onUpdateList={handleUpdateList}
                   />
                 ))}
               </div>

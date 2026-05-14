@@ -590,6 +590,7 @@ function SwipeRow({
   const directionRef = useRef<'h' | 'v' | null>(null);
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didMoveRef = useRef(false);
+  const tapOnTextRef = useRef(false); // true only when touch started on the text/center area
   const [translateX, setTranslateX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
@@ -602,7 +603,7 @@ function SwipeRow({
   }, []);
 
   // Long-press + swipe detection
-  const handleTouchStart = (e: React.TouchEvent) => {
+  const handleTouchStart = (e: React.TouchEvent, fromTextArea = false) => {
     if (isScrollingRef.current) return;
     touchStartXRef.current = e.touches[0].clientX;
     touchStartYRef.current = e.touches[0].clientY;
@@ -610,6 +611,7 @@ function SwipeRow({
     didMoveRef.current = false;
     isDraggingRef.current = false;
     setIsDragging(false);
+    tapOnTextRef.current = fromTextArea;
     pressTimerRef.current = setTimeout(() => {
       onPressStart();
     }, LONG_PRESS_MS);
@@ -667,7 +669,7 @@ function SwipeRow({
       isDraggingRef.current = false;
       setIsDragging(false);
     } else if (!didMoveRef.current && !multiSelect) {
-      onTap();
+      if (tapOnTextRef.current) onTap();
     } else if (!didMoveRef.current && multiSelect) {
       onToggleSelect();
     }
@@ -702,6 +704,7 @@ function SwipeRow({
         ) : (
           <button
             onClick={e => { e.stopPropagation(); onToggle(); }}
+            onTouchStart={e => { e.stopPropagation(); }}
             className="flex items-center justify-center transition-all"
             style={{
               width: 24, height: 24, borderRadius: '50%',
@@ -715,7 +718,7 @@ function SwipeRow({
         )}
       </div>
 
-      {/* ── PRODUCT IMAGE ── */}
+      {/* ── PRODUCT IMAGE ── stops touch propagation so tapping image doesn't open sheet ── */}
       <div
         className="shrink-0 my-2"
         style={{
@@ -723,12 +726,15 @@ function SwipeRow({
           background: '#f5f0eb', overflow: 'hidden',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
+        onTouchStart={e => e.stopPropagation()}
       >
         <RowImage itemCode={item.item_code} name={item.item_name} groupId={item.group_id} />
       </div>
 
-      {/* ── CENTER: name + subtitle ── */}
-      <div className="flex-1 min-w-0 px-3 py-3">
+      {/* ── CENTER: name + subtitle — tap here opens BottomSheet ── */}
+      <div className="flex-1 min-w-0 px-3 py-3"
+        onTouchStart={e => handleTouchStart(e, true)}
+      >
         {item.item_code && item.item_code !== 'group' ? (
           <Link href={`/product/${item.item_code}`} onClick={e => e.stopPropagation()}>
             <p

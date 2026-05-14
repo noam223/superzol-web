@@ -17,6 +17,7 @@ type ChainPrice = {
   chainId: string;
   chainName: string;
   price: number;
+  promotion_description?: string | null;
 };
 
 type NearbyStore = {
@@ -273,9 +274,16 @@ export default function ProductPage() {
       getProductPrices(itemCode).then((results) => {
         const prices: ChainPrice[] = (results as Array<{ chainId: string; chainName: string; hits: Array<{ document: Record<string, unknown> }> }>)
           .map((r) => {
-            const ps = r.hits.map((h) => Number(h.document.item_price)).filter((p) => p > 0);
-            if (ps.length === 0) return null;
-            return { chainId: r.chainId, chainName: CHAIN_NAMES[r.chainId] || r.chainName, price: Math.min(...ps) };
+            const docs = r.hits.map((h) => h.document).filter((d) => Number(d.item_price) > 0);
+            if (docs.length === 0) return null;
+            docs.sort((a, b) => Number(a.item_price) - Number(b.item_price));
+            const cheapest = docs[0];
+            return {
+              chainId: r.chainId,
+              chainName: CHAIN_NAMES[r.chainId] || r.chainName,
+              price: Number(cheapest.item_price),
+              promotion_description: (cheapest.promotion_description as string) || null,
+            };
           })
           .filter(Boolean) as ChainPrice[];
         prices.sort((a, b) => a.price - b.price);
@@ -501,11 +509,18 @@ export default function ProductPage() {
                           background: isCheapest ? 'rgba(45,122,45,0.1)' : isMostExpensive ? 'rgba(191,44,44,0.06)' : 'rgba(255,255,255,0.6)',
                           border: isCheapest ? '1.5px solid rgba(45,122,45,0.3)' : '1px solid rgba(182,171,156,0.3)',
                         }}>
-                        <div className="flex items-center gap-2">
-                          {isCheapest && (
-                            <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full font-semibold">הכי זול</span>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2">
+                            {isCheapest && (
+                              <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full font-semibold">הכי זול</span>
+                            )}
+                            <p className="font-semibold text-sm" style={{ color: '#4F483F' }}>{cp.chainName}</p>
+                          </div>
+                          {cp.promotion_description && (
+                            <p className="text-xs font-medium" style={{ color: '#c47a00' }}>
+                              🏷️ {cp.promotion_description}
+                            </p>
                           )}
-                          <p className="font-semibold text-sm" style={{ color: '#4F483F' }}>{cp.chainName}</p>
                         </div>
                         <span className="text-base font-bold"
                           style={{ color: isCheapest ? '#2d7a2d' : isMostExpensive ? '#BF2C2C' : '#4F483F' }}>

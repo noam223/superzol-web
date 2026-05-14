@@ -806,51 +806,52 @@ function SwipeRow({
   );
 
   return (
-    <div className="relative" style={{ borderRadius: 16, overflow: 'hidden' }}>
-      {/* RIGHT action panel — revealed when swiping right */}
-      <div
-        style={{
-          position: 'absolute', top: 0, right: 0, bottom: 0,
-          width: ACTION_WIDTH,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(45,122,45,0.85)',
-          borderRadius: '16px 0 0 16px',
-          opacity: translateX > 0 ? Math.min(translateX / ACTION_WIDTH, 1) : 0,
-          pointerEvents: 'none',
-        }}
-      >
-        <Check size={24} color="white" />
+    <div className="relative" style={{ borderRadius: 16 }}>
+      {/* Inner clip wrapper — clips action panels + sliding content, but NOT the trash button */}
+      <div style={{ borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
+        {/* RIGHT action panel — revealed when swiping right */}
+        <div
+          style={{
+            position: 'absolute', top: 0, right: 0, bottom: 0,
+            width: ACTION_WIDTH,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(45,122,45,0.85)',
+            opacity: translateX > 0 ? Math.min(translateX / ACTION_WIDTH, 1) : 0,
+            pointerEvents: 'none',
+          }}
+        >
+          <Check size={24} color="white" />
+        </div>
+
+        {/* LEFT action panel — revealed when swiping left */}
+        <div
+          style={{
+            position: 'absolute', top: 0, left: 0, bottom: 0,
+            width: ACTION_WIDTH,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(191,44,44,0.85)',
+            opacity: translateX < 0 ? Math.min(-translateX / ACTION_WIDTH, 1) : 0,
+            pointerEvents: 'none',
+          }}
+        >
+          <Trash2 size={24} color="white" />
+        </div>
+
+        {/* MAIN content — slides with touch */}
+        <div
+          style={{
+            transform: `translateX(${translateX}px)`,
+            transition: isDragging ? 'none' : 'transform 0.2s ease',
+            borderRadius: 16,
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
+          {rowContent}
+        </div>
       </div>
 
-      {/* LEFT action panel — revealed when swiping left */}
-      <div
-        style={{
-          position: 'absolute', top: 0, left: 0, bottom: 0,
-          width: ACTION_WIDTH,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(191,44,44,0.85)',
-          borderRadius: '0 16px 16px 0',
-          opacity: translateX < 0 ? Math.min(-translateX / ACTION_WIDTH, 1) : 0,
-          pointerEvents: 'none',
-        }}
-      >
-        <Trash2 size={24} color="white" />
-      </div>
-
-      {/* MAIN content — slides with touch */}
-      <div
-        style={{
-          transform: `translateX(${translateX}px)`,
-          transition: isDragging ? 'none' : 'transform 0.2s ease',
-          borderRadius: 16,
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        {rowContent}
-      </div>
-
-      {/* ── TRASH button: absolute circle on top-left corner ── */}
+      {/* ── TRASH button: absolute circle on top-left corner — outside clip wrapper so it floats ── */}
       {!multiSelect && (
         <button
           onClick={e => { e.stopPropagation(); onDelete(); }}

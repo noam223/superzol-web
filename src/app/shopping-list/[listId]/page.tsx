@@ -7,6 +7,7 @@ import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Squ
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { getChainLogoUrl } from '@/lib/chainLogos';
 import { getUserLocation } from '@/lib/location';
+import { searchProductsIndex, IndexProduct } from '@/lib/typesense';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -975,6 +976,12 @@ export default function ShoppingListDetailPage() {
   const [selectedGroup, setSelectedGroup] = useState<ListItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Inline search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<IndexProduct[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Long-press refs per item
   const pressTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -1022,6 +1029,51 @@ export default function ShoppingListDetailPage() {
   const persistNamedItems = useCallback((updated: ListItem[]) => {
     if (isNamedList) saveNamedListItems(namedListId, updated);
   }, [isNamedList, namedListId]);
+
+  // Inline search debounce
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const { hits } = await searchProductsIndex(searchQuery, { perPage: 8 });
+        setSearchResults(hits);
+      } catch { setSearchResults([]); }
+      finally { setSearchLoading(false); }
+    }, 300);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [searchQuery]);
+
+  // Add a product to the current list
+  const addItemToList = useCallback(async (product: IndexProduct) => {
+    if (isNamedList) {
+      const newItem: ListItem = {
+        id: crypto.randomUUID(),
+        item_code: product.item_code,
+        item_name: product.item_name,
+        quantity: 1,
+        checked: false,
+        group_id: null,
+      };
+      setItems(prev => { const u = [newItem, ...prev]; persistNamedItems(u); return u; });
+      toast.success(`${product.item_name} נוסף`);
+    } else {
+      if (!user) { toast.error('התחבר כדי לשמור לרשימה'); return; }
+      const { data, error } = await supabase.from('shopping_list_items').insert({
+        user_id: user.id,
+        item_code: product.item_code,
+        item_name: product.item_name,
+        quantity: 1,
+        checked: false,
+      }).select().single();
+      if (error) { toast.error('שגיאה בהוספה'); return; }
+      setItems(prev => [data as ListItem, ...prev]);
+      toast.success(`${product.item_name} נוסף`);
+    }
+    setSearchQuery('');
+    setSearchResults([]);
+  }, [isNamedList, user, persistNamedItems]);
 
   const checkRangeForItems = useCallback(async (itemList: ListItem[]) => {
     const loc = await getUserLocation();
@@ -1198,17 +1250,54 @@ export default function ShoppingListDetailPage() {
           </div>
         )}
 
-        {/* Add item button */}
+        {/* Inline search bar */}
         {!isStoreList && !multiSelect && (
-          <Link
-            href="/search"
-            className="flex items-center gap-3 p-4 rounded-2xl mb-5 transition-opacity hover:opacity-80"
-            style={{ background: 'rgba(233,216,197,0.6)', border: '1.5px dashed rgba(182,171,156,0.7)', color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}
-          >
-            <Plus size={18} style={{ color: '#BF2C2C' }} />
-            <span className="font-medium text-sm">הוסף מוצר מהחיפוש</span>
-            <Search size={14} className="mr-auto" />
-          </Link>
+          <div className="relative mb-5" dir="rtl">
+            <div className="flex items-center gap-2 px-4 py-3 rounded-2xl" style={{ background: 'rgba(233,216,197,0.6)', border: '1.5px solid rgba(182,171,156,0.5)', fontFamily: 'Heebo, sans-serif' }}>
+              <Search size={16} style={{ color: '#BF2C2C', flexShrink: 0 }} />
+              <input
+                type="text"
+                placeholder="חפש מוצר להוספה..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="flex-1 bg-transparent outline-none text-sm"
+                style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}
+              />
+              {searchLoading && (
+                <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin shrink-0" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} />
+              )}
+              {searchQuery && !searchLoading && (
+                <button onClick={() => { setSearchQuery(''); setSearchResults([]); }} style={{ color: '#8a7f75' }}>
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            {searchResults.length > 0 && (
+              <div className="absolute top-full right-0 left-0 z-50 mt-1 rounded-2xl overflow-hidden shadow-lg" style={{ background: 'rgba(248,244,240,0.98)', border: '1.5px solid rgba(182,171,156,0.4)' }}>
+                {searchResults.map(product => (
+                  <button
+                    key={product.item_code}
+                    onClick={() => addItemToList(product)}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-right transition-colors hover:bg-amber-50 active:bg-amber-100"
+                    style={{ borderBottom: '1px solid rgba(182,171,156,0.2)', fontFamily: 'Heebo, sans-serif' }}
+                  >
+                    <img
+                      src={getProductImageUrl(product.item_code)}
+                      alt={product.item_name}
+                      onError={e => { (e.target as HTMLImageElement).src = getProductImageFallback(product.item_code); }}
+                      className="w-10 h-10 rounded-xl object-contain shrink-0"
+                      style={{ background: '#f0e8e0' }}
+                    />
+                    <div className="flex flex-col flex-1 min-w-0 text-right">
+                      <span className="text-sm font-medium truncate" style={{ color: '#4F483F' }}>{product.item_name}</span>
+                      {product.manufacturer_name && <span className="text-xs truncate" style={{ color: '#8a7f75' }}>{product.manufacturer_name}</span>}
+                    </div>
+                    <Plus size={16} style={{ color: '#BF2C2C', flexShrink: 0 }} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {isStoreList ? (

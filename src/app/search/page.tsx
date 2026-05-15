@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Search, X, ChevronLeft, ScanBarcode, ShoppingCart } from 'lucide-react';
+import { Search, X, ChevronLeft, ScanBarcode, ShoppingCart, Check } from 'lucide-react';
 import { searchProductsIndex, fetchAllGroupItemCodes, isValidManufacturerName, formatUnitInfo, getProductByItemCode, IndexProduct, formatLastUpdated } from '@/lib/typesense';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { supabase } from '@/lib/supabase';
@@ -101,6 +101,108 @@ function GroupCard({ group, onAdd }: { group: ProductGroup; onAdd: (group: Produ
   );
 }
 
+// ── localStorage helpers for named lists ─────────────────────────────────────
+const NAMED_LISTS_KEY = 'superzol_named_lists';
+const NAMED_LIST_ITEMS_PREFIX = 'superzol_named_list_items_';
+
+type NamedList = { id: string; name: string; created_at: string };
+
+function loadNamedLists(): NamedList[] {
+  try { return JSON.parse(localStorage.getItem(NAMED_LISTS_KEY) ?? '[]'); } catch { return []; }
+}
+
+function loadNamedListItems(namedListId: string): { id: string; item_code: string; item_name: string; quantity: number; checked: boolean; group_id: string | null }[] {
+  try { return JSON.parse(localStorage.getItem(NAMED_LIST_ITEMS_PREFIX + namedListId) ?? '[]'); } catch { return []; }
+}
+
+function saveNamedListItems(namedListId: string, items: { id: string; item_code: string; item_name: string; quantity: number; checked: boolean; group_id: string | null }[]) {
+  localStorage.setItem(NAMED_LIST_ITEMS_PREFIX + namedListId, JSON.stringify(items));
+}
+
+// ── AddToListSheet ────────────────────────────────────────────────────────────
+type PendingAdd = { type: 'product'; product: IndexProduct } | { type: 'group'; group: { id: string; name: string } };
+
+function AddToListSheet({ pending, user, onClose }: { pending: PendingAdd; user: { id: string } | null; onClose: () => void }) {
+  const [namedLists, setNamedLists] = useState<NamedList[]>([]);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    setNamedLists(loadNamedLists());
+    const t = setTimeout(() => setVisible(true), 10);
+    return () => clearTimeout(t);
+  }, []);
+
+  const close = () => { setVisible(false); setTimeout(onClose, 300); };
+
+  const addToMain = async () => {
+    if (!user) { toast.error('התחבר כדי לשמור לרשימה הראשית'); close(); return; }
+    if (pending.type === 'product') {
+      const { error } = await supabase.from('shopping_list_items').insert({
+        user_id: user.id, item_code: pending.product.item_code, item_name: pending.product.item_name, quantity: 1, checked: false,
+      });
+      if (error) toast.error('שגיאה בהוספה'); else toast.success(`${pending.product.item_name} נוסף לרשימה הראשית`);
+    } else {
+      const { error } = await supabase.from('shopping_list_items').insert({
+        user_id: user.id, item_code: 'group', item_name: pending.group.name, quantity: 1, checked: false, group_id: pending.group.id,
+      });
+      if (error) toast.error('שגיאה בהוספה'); else toast.success(`📦 ${pending.group.name} נוסף לרשימה הראשית`);
+    }
+    close();
+  };
+
+  const addToNamed = (list: NamedList) => {
+    const items = loadNamedListItems(list.id);
+    if (pending.type === 'product') {
+      saveNamedListItems(list.id, [...items, { id: crypto.randomUUID(), item_code: pending.product.item_code, item_name: pending.product.item_name, quantity: 1, checked: false, group_id: null }]);
+      toast.success(`${pending.product.item_name} נוסף ל${list.name}`);
+    } else {
+      saveNamedListItems(list.id, [...items, { id: crypto.randomUUID(), item_code: 'group', item_name: pending.group.name, quantity: 1, checked: false, group_id: pending.group.id }]);
+      toast.success(`📦 ${pending.group.name} נוסף ל${list.name}`);
+    }
+    close();
+  };
+
+  const itemName = pending.type === 'product' ? pending.product.item_name : pending.group.name;
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/40" onClick={close} />
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl pb-8 pt-5 px-5 transition-transform duration-300"
+        style={{ background: '#F5EDE4', transform: visible ? 'translateY(0)' : 'translateY(100%)', fontFamily: 'Heebo, sans-serif' }}
+        dir="rtl"
+      >
+        <div className="w-10 h-1 rounded-full mx-auto mb-4" style={{ background: 'rgba(182,171,156,0.5)' }} />
+        <p className="text-sm font-medium mb-4 text-center" style={{ color: '#8a7f75' }}>הוסף &quot;{itemName}&quot; לרשימה:</p>
+        <div className="flex flex-col gap-2">
+          {/* Main list */}
+          <button
+            onClick={addToMain}
+            className="flex items-center gap-3 px-4 py-3 rounded-2xl text-right transition-opacity hover:opacity-80"
+            style={{ background: 'rgba(233,216,197,0.8)', border: '1.5px solid rgba(182,171,156,0.4)' }}
+          >
+            <ShoppingCart size={18} style={{ color: '#BF2C2C' }} />
+            <span className="font-semibold text-sm" style={{ color: '#4F483F' }}>רשימת קניות ראשית</span>
+          </button>
+          {/* Named lists */}
+          {namedLists.map(list => (
+            <button
+              key={list.id}
+              onClick={() => addToNamed(list)}
+              className="flex items-center gap-3 px-4 py-3 rounded-2xl text-right transition-opacity hover:opacity-80"
+              style={{ background: 'rgba(233,216,197,0.8)', border: '1.5px solid rgba(182,171,156,0.4)' }}
+            >
+              <Check size={18} style={{ color: '#2d7a2d' }} />
+              <span className="font-semibold text-sm" style={{ color: '#4F483F' }}>{list.name}</span>
+            </button>
+          ))}
+        </div>
+        <button onClick={close} className="mt-4 w-full py-3 rounded-2xl text-sm font-medium" style={{ background: 'rgba(182,171,156,0.3)', color: '#4F483F' }}>ביטול</button>
+      </div>
+    </>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function SearchPage() {
   const [query, setQuery] = useState('');
@@ -111,6 +213,13 @@ export default function SearchPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupItemCodesRef = useRef<Set<string>>(new Set());
   const [showScanner, setShowScanner] = useState(false);
+  const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: string } | null>(null);
+
+  // Load current user once
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => setCurrentUser(user));
+  }, []);
 
   // All groups loaded once on mount
   const [allGroups, setAllGroups] = useState<ProductGroup[]>([]);
@@ -216,45 +325,26 @@ export default function SearchPage() {
     }
   }, []);
 
-  const handleAddToList = async (product: IndexProduct) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      toast.error('התחבר כדי לשמור לרשימת קניות');
-      return;
-    }
-    const { error } = await supabase.from('shopping_list_items').insert({
-      user_id: user.id,
-      item_code: product.item_code,
-      item_name: product.item_name,
-      quantity: 1,
-      checked: false,
-    });
-    if (error) toast.error('שגיאה בהוספה לרשימה');
-    else toast.success(`${product.item_name} נוסף לרשימה`);
+  const handleAddToList = (product: IndexProduct) => {
+    setPendingAdd({ type: 'product', product });
   };
 
-  const handleAddGroupToList = async (group: ProductGroup) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      toast.error('התחבר כדי לשמור לרשימת קניות');
-      return;
-    }
-    // Insert group as a shopping list item with group_id
-    const { error } = await supabase.from('shopping_list_items').insert({
-      user_id: user.id,
-      item_code: 'group',
-      item_name: group.name,
-      quantity: 1,
-      checked: false,
-      group_id: group.id,
-    });
-    if (error) toast.error('שגיאה בהוספה לרשימה');
-    else toast.success(`📦 ${group.name} נוסף לרשימה`);
+  const handleAddGroupToList = (group: ProductGroup) => {
+    setPendingAdd({ type: 'group', group });
   };
 
   return (
     <div className="min-h-screen pb-28" style={{ background: 'url(/icons/background.jpg) center/cover fixed', backgroundColor: '#DAD1CA' }}>
       <div className="max-w-2xl mx-auto px-4 py-6">
+
+        {/* AddToList BottomSheet */}
+        {pendingAdd && (
+          <AddToListSheet
+            pending={pendingAdd}
+            user={currentUser}
+            onClose={() => setPendingAdd(null)}
+          />
+        )}
 
         {/* Search bar */}
         <div className="flex gap-2 mb-5">

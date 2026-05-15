@@ -405,7 +405,7 @@ function StoreCard({
   rank: number;
   totalItems: number;
   onReplace: (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number) => Promise<void>;
-  onUpdateList: (store: StoreResult) => Promise<void>;
+  onUpdateList: (store: StoreResult) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [substituteFor, setSubstituteFor] = useState<ItemResult | null>(null);
@@ -1101,51 +1101,40 @@ export default function ComparePage() {
   }, [currentItems, location, radiusKm, runCompare]);
 
   // ── Handle promo cancel: restore original quantities (local only) ──
-  const handlePromoCancel = useCallback(async () => {
+  const handlePromoCancel = useCallback(() => {
     const originals = originalItemsRef.current;
     if (originals.length === 0) return;
 
-    setCurrentItems(originals);
-    setListItems(originals);
-    setPromoFulfilled(false);
     originalItemsRef.current = [];
+    setPromoFulfilled(false);
+    setListItems(originals);
+    setCurrentItems(originals);
+    // Setting compared=false triggers the auto-compare useEffect with restored quantities
+    setCompared(false);
+  }, []);
 
-    if (location) {
-      setCompared(false);
-      await runCompare(originals, location, radiusKm, false, []);
-    }
-  }, [location, radiusKm, runCompare]);
+  // ── Handle "עדכון רשימה": save store list to sessionStorage (supports multiple lists) ──
+  const handleUpdateList = useCallback((store: StoreResult) => {
+    // Build a flat list of resolved items (group items → actual barcode)
+    const storeListItems = store.items
+      .filter(i => i.found)
+      .map(i => ({
+        item_code: i.resolved_item_code || i.item_code,
+        item_name: i.item_name,
+        quantity: i.quantity,
+        price: i.effective_price ?? i.price,
+      }));
 
-  // ── Handle "עדכון רשימה": write a specific store's quantities + promo prices to Supabase ──
-  const handleUpdateList = useCallback(async (store: StoreResult) => {
-    const userId = userIdRef.current;
-    if (!userId) return;
-
-    // Update each found item's quantity in Supabase to match this store's quantities
-    await Promise.all(
-      store.items
-        .filter(i => i.found)
-        .map(i =>
-          supabase
-            .from('shopping_list_items')
-            .update({ quantity: i.quantity })
-            .eq('user_id', userId)
-            .eq('item_code', i.item_code)
-        )
-    );
-
-    // Save store name to sessionStorage so shopping list header can show it
     try {
+      // Load existing lists, replace if same store already saved, otherwise append
+      const raw = sessionStorage.getItem('superzol_store_lists');
+      const existing: { store_name: string; items: typeof storeListItems }[] = raw ? JSON.parse(raw) : [];
+      const filtered = existing.filter(l => l.store_name !== store.store_name);
+      filtered.push({ store_name: store.store_name, items: storeListItems });
+      sessionStorage.setItem('superzol_store_lists', JSON.stringify(filtered));
+      // Also keep legacy key for header display (last saved store)
       sessionStorage.setItem('superzol_list_store', store.store_name);
     } catch { /* ignore */ }
-
-    // Update listItems to reflect the new quantities
-    setListItems(prev =>
-      prev.map(li => {
-        const storeItem = store.items.find(si => si.item_code === li.item_code || si.resolved_item_code === li.item_code);
-        return storeItem?.found ? { ...li, quantity: storeItem.quantity } : li;
-      })
-    );
   }, []);
 
   // ── Loading ──

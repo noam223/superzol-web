@@ -873,12 +873,26 @@ function SwipeRow({
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+type StoreListItem = {
+  item_code: string;
+  item_name: string;
+  quantity: number;
+  price: number;
+};
+
+type StoreList = {
+  store_name: string;
+  items: StoreListItem[];
+};
+
 export default function ShoppingListPage() {
   const [items, setItems] = useState<ListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [outOfRangeIds, setOutOfRangeIds] = useState<Set<string>>(new Set());
   const [listStoreName, setListStoreName] = useState<string | null>(null);
+  const [storeLists, setStoreLists] = useState<StoreList[]>([]);
+  const [collapsedStoreLists, setCollapsedStoreLists] = useState<Set<string>>(new Set());
 
   // Multi-select state
   const [multiSelect, setMultiSelect] = useState(false);
@@ -907,12 +921,41 @@ export default function ShoppingListPage() {
     };
   }, []);
 
-  // Read store name from sessionStorage (set by compare page "עדכון רשימה" button)
+  // Read store name + store lists from sessionStorage (set by compare page "עדכון רשימה" button)
   useEffect(() => {
     try {
       const name = sessionStorage.getItem('superzol_list_store');
       if (name) setListStoreName(name);
+      const raw = sessionStorage.getItem('superzol_store_lists');
+      if (raw) {
+        const parsed: StoreList[] = JSON.parse(raw);
+        if (Array.isArray(parsed)) setStoreLists(parsed);
+      }
     } catch { /* ignore */ }
+  }, []);
+
+  const deleteStoreList = useCallback((storeName: string) => {
+    setStoreLists(prev => {
+      const updated = prev.filter(l => l.store_name !== storeName);
+      try {
+        sessionStorage.setItem('superzol_store_lists', JSON.stringify(updated));
+        // If the deleted list was the "active" store, clear the header too
+        const currentStore = sessionStorage.getItem('superzol_list_store');
+        if (currentStore === storeName) {
+          sessionStorage.removeItem('superzol_list_store');
+          setListStoreName(null);
+        }
+      } catch { /* ignore */ }
+      return updated;
+    });
+  }, []);
+
+  const toggleStoreListCollapse = useCallback((storeName: string) => {
+    setCollapsedStoreLists(prev => {
+      const s = new Set(prev);
+      if (s.has(storeName)) s.delete(storeName); else s.add(storeName);
+      return s;
+    });
   }, []);
 
   useEffect(() => {
@@ -1179,6 +1222,92 @@ export default function ShoppingListPage() {
               </p>
             )}
           </>
+        )}
+
+        {/* Store-specific lists saved from compare page */}
+        {storeLists.length > 0 && (
+          <div className="mt-6">
+            <h2 className="text-sm font-bold mb-3 px-1" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
+              🛒 רשימות לפי חנות
+            </h2>
+            <div className="flex flex-col gap-3">
+              {storeLists.map(storeList => {
+                const isCollapsed = collapsedStoreLists.has(storeList.store_name);
+                const total = storeList.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+                return (
+                  <div
+                    key={storeList.store_name}
+                    className="rounded-2xl overflow-hidden"
+                    style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.4)' }}
+                  >
+                    {/* Store list header */}
+                    <div
+                      className="flex items-center justify-between px-4 py-3 cursor-pointer"
+                      onClick={() => toggleStoreListCollapse(storeList.store_name)}
+                      style={{ borderBottom: isCollapsed ? 'none' : '1px solid rgba(182,171,156,0.3)' }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
+                          {storeList.store_name}
+                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(182,171,156,0.3)', color: '#8a7f75' }}>
+                          {storeList.items.length} פריטים
+                        </span>
+                        <span className="text-xs font-semibold" style={{ color: '#2d7a2d' }}>
+                          ₪{total.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={e => { e.stopPropagation(); deleteStoreList(storeList.store_name); }}
+                          className="flex items-center justify-center w-7 h-7 rounded-full"
+                          style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C' }}
+                          title="מחק רשימה"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                        <span style={{ color: '#8a7f75', fontSize: 14 }}>{isCollapsed ? '▸' : '▾'}</span>
+                      </div>
+                    </div>
+
+                    {/* Store list items */}
+                    {!isCollapsed && (
+                      <div className="flex flex-col">
+                        {storeList.items.map((item, idx) => (
+                          <div key={`${item.item_code}-${idx}`} className="flex items-center justify-between px-4 py-2.5 gap-3" style={{ borderTop: idx === 0 ? 'none' : '1px solid rgba(182,171,156,0.25)' }}>
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <ProductImage itemCode={item.item_code} name={item.item_name} size={36} />
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-xs font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
+                                  {item.item_name}
+                                </span>
+                                <span className="text-xs" style={{ color: '#8a7f75' }}>
+                                  ×{item.quantity}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-xs font-semibold shrink-0" style={{ color: '#4F483F' }}>
+                              ₪{(item.price * item.quantity).toFixed(2)}
+                              {item.quantity > 1 && (
+                                <span className="font-normal ml-1" style={{ color: '#8a7f75' }}>
+                                  (₪{item.price.toFixed(2)} ליח׳)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {/* Total row */}
+                        <div className="flex items-center justify-between px-4 py-2.5" style={{ background: 'rgba(182,171,156,0.15)' }}>
+                          <span className="text-xs font-bold" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>סה״כ</span>
+                          <span className="text-sm font-bold" style={{ color: '#2d7a2d' }}>₪{total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
       {selectedItem && <ProductSheet item={selectedItem} onClose={() => setSelectedItem(null)} />}

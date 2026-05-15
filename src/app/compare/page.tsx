@@ -70,7 +70,8 @@ type IndexProduct = {
 type Location = { lat: number; lng: number; label: string };
 
 type PromoSuggestion = {
-  item_code: string;
+  item_code: string;       // 'group' for group items
+  group_label?: string;    // for group items: used as unique key instead of item_code
   item_name: string;
   current_qty: number;
   suggested_qty: number;
@@ -788,11 +789,14 @@ export default function ComparePage() {
   const promoSuggestions: PromoSuggestion[] = (() => {
     const suggestions: PromoSuggestion[] = [];
     for (const item of currentItems) {
+      const isGroup = item.item_code === 'group';
       let bestSuggestion: PromoSuggestion | null = null;
       for (const store of stores) {
-        const storeItem = store.items.find(
-          si => si.item_code === item.item_code || si.resolved_item_code === item.item_code
-        );
+        // For group items: match by group_label; for regular items: match by item_code
+        const storeItem = store.items.find(si => {
+          if (isGroup) return si.group_label === item.group_label;
+          return si.item_code === item.item_code || si.resolved_item_code === item.item_code;
+        });
         if (!storeItem || !storeItem.found) continue;
         const minQty = storeItem.promo_min_qty;
         if (!minQty || minQty <= item.quantity) continue;
@@ -800,6 +804,7 @@ export default function ComparePage() {
         if (!bestSuggestion || minQty > bestSuggestion.suggested_qty) {
           bestSuggestion = {
             item_code: item.item_code,
+            group_label: isGroup ? item.group_label : undefined,
             item_name: storeItem.item_name || item.item_name,
             current_qty: item.quantity,
             suggested_qty: minQty,
@@ -1075,8 +1080,14 @@ export default function ComparePage() {
     originalItemsRef.current = snapshot;
 
     // Update local state only (currentItems — listItems stays as original)
+    // For group items: match by group_label; for regular items: match by item_code
     const updatedItems = currentItems.map(i => {
-      const suggestion = suggestions.find(s => s.item_code === i.item_code);
+      const isGroup = i.item_code === 'group';
+      const suggestion = suggestions.find(s =>
+        isGroup
+          ? s.group_label === i.group_label
+          : s.item_code === i.item_code
+      );
       return suggestion ? { ...i, quantity: suggestion.suggested_qty } : i;
     });
     setCurrentItems(updatedItems);

@@ -1026,10 +1026,10 @@ export default function ComparePage() {
       })
     );
 
-    // Re-sort by same logic as API: most found first, then lowest price
+    // Re-sort by same logic as API: most found first, then lowest effective_total (with promos)
     const sortedStores = [...updatedStores].sort((a, b) => {
       if (b.products_found !== a.products_found) return b.products_found - a.products_found;
-      return a.total_price - b.total_price;
+      return a.effective_total - b.effective_total;
     });
     setStores(sortedStores);
 

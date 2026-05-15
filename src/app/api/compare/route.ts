@@ -554,12 +554,13 @@ export async function POST(request: NextRequest) {
       sr.fuel_adjusted_total = sr.effective_total + sr.distance_km * FUEL_COST_PER_KM;
     });
 
-    // 5. Filter stores that found at least one item, sort: products_found DESC, total_price ASC
+    // 5. Filter stores that found at least one item, sort: products_found DESC, effective_total ASC
+    // Use effective_total (with promos) so stores with better promo prices rank higher
     const storeResults = Array.from(storeResultMap.values())
       .filter(s => s.products_found > 0)
       .sort((a, b) => {
         if (b.products_found !== a.products_found) return b.products_found - a.products_found;
-        return a.total_price - b.total_price;
+        return a.effective_total - b.effective_total;
       });
 
     // 6. Find most cost-effective store:

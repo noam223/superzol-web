@@ -796,8 +796,8 @@ export default function ComparePage() {
         if (!storeItem || !storeItem.found) continue;
         const minQty = storeItem.promo_min_qty;
         if (!minQty || minQty <= item.quantity) continue;
-        // This store has a promo that needs more quantity
-        if (!bestSuggestion || minQty < bestSuggestion.suggested_qty) {
+        // Pick the LARGEST minQty across all stores so ALL stores' promos are satisfied
+        if (!bestSuggestion || minQty > bestSuggestion.suggested_qty) {
           bestSuggestion = {
             item_code: item.item_code,
             item_name: storeItem.item_name || item.item_name,

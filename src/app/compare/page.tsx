@@ -467,7 +467,10 @@ function MostCostEffectiveCard({
               הכי משתלמת!
             </span>
           </div>
-          <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{stripChainPrefix(store.store_name, store.chain_name)}</p>
+          <p className="font-bold text-sm" style={{ color: '#4F483F' }}>
+            {stripChainPrefix(store.store_name, store.chain_name)}
+            <span className="text-xs font-normal ms-1" style={{ color: '#B6AB9C' }}>#{store.store_id}</span>
+          </p>
           <div className="flex items-center gap-3 mt-0.5 flex-wrap">
             <span className="text-xs" style={{ color: '#8a7f75' }}>📍 {store.distance_km.toFixed(1)} ק&quot;מ</span>
             <span className="text-xs font-medium" style={{ color: store.products_missing > 0 ? '#b85c00' : '#2d7a2d' }}>
@@ -659,7 +662,10 @@ function StoreCard({
             )}
             {/* Store name */}
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{stripChainPrefix(store.store_name, store.chain_name)}</p>
+              <p className="font-bold text-sm" style={{ color: '#4F483F' }}>
+                {stripChainPrefix(store.store_name, store.chain_name)}
+                <span className="text-xs font-normal ms-1" style={{ color: '#B6AB9C' }}>#{store.store_id}</span>
+              </p>
             </div>
             {/* Bottom row: distance + coverage */}
             <div className="flex items-center gap-3 mt-0.5 flex-wrap">

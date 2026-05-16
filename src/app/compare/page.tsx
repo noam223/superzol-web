@@ -539,7 +539,7 @@ function MostCostEffectiveCard({
               ⛽
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>עלות נסיעה</p>
+              <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>עלות נסיעה ממוצעת</p>
               <p className="text-xs" style={{ color: '#8a7f75' }}>הלוך וחזור · {(store.distance_km * 2).toFixed(1)} ק&quot;מ</p>
             </div>
             <div className="text-right shrink-0">
@@ -807,7 +807,7 @@ function StoreCard({
                 ⛽
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>עלות נסיעה</p>
+                <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>עלות נסיעה ממוצעת</p>
                 <p className="text-xs" style={{ color: '#8a7f75' }}>הלוך וחזור · {(store.distance_km * 2).toFixed(1)} ק&quot;מ</p>
               </div>
               <div className="text-right shrink-0">
@@ -1220,12 +1220,21 @@ export default function ComparePage() {
 
         const foundCount = updatedItems.filter(i => i.found).length;
         const total = updatedItems.reduce((sum, i) => sum + (i.total || 0), 0);
+        const effectiveTotal = updatedItems.reduce((sum, i) => {
+          if (!i.found) return sum;
+          const ep = i.effective_price != null && i.effective_price < (i.price ?? Infinity)
+            ? i.effective_price
+            : i.price ?? 0;
+          return sum + ep * i.quantity;
+        }, 0);
         return {
           ...s,
           items: updatedItems,
           products_found: foundCount,
           products_missing: updatedItems.length - foundCount,
           total_price: total,
+          effective_total: effectiveTotal,
+          fuel_adjusted_total: effectiveTotal + s.distance_km * 2 * (8 / 15),
         };
       })
     );

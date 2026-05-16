@@ -353,7 +353,7 @@ function MostCostEffectiveCard({
               }}
             >
               <ProductImg
-                itemCode={item.group_label ? (item.image_item_code || item.item_code) : item.item_code}
+                itemCode={item.group_label ? (item.resolved_item_code || item.item_code) : item.item_code}
                 name={item.group_label || item.item_name}
                 size={36}
               />
@@ -564,7 +564,7 @@ function StoreCard({
                 {/* Top row: image | name+qty | price+button */}
                 <div className="flex items-center gap-3">
                   <ProductImg
-                    itemCode={item.group_label ? (item.image_item_code || item.item_code) : item.item_code}
+                    itemCode={item.group_label ? (item.resolved_item_code || item.item_code) : item.item_code}
                     name={item.group_label || item.item_name}
                     size={36}
                   />

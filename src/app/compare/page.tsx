@@ -657,11 +657,13 @@ function StoreCard({
 
           {/* Price */}
           <div className="shrink-0 text-right">
-            <p className="font-bold text-base" style={{ color: isTop ? '#b07800' : '#4F483F' }}>₪{displayTotal.toFixed(2)}</p>
+            <p className="font-bold text-base" style={{ color: isTop ? '#b07800' : '#4F483F' }}>₪{grandTotal.toFixed(2)}</p>
+            <p className="text-xs" style={{ color: '#8a7f75' }}>
+              🛒 ₪{displayTotal.toFixed(2)} + ⛽ ₪{fuelCost.toFixed(2)}
+            </p>
             {hasPromos && (
               <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>₪{store.total_price.toFixed(2)}</p>
             )}
-            <p className="text-xs" style={{ color: '#8a7f75' }}>לפריטים שנמצאו</p>
           </div>
           <div style={{ color: '#8a7f75', flexShrink: 0 }}>
             {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}

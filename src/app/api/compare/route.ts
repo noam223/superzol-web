@@ -13,7 +13,8 @@ const FRESH_MAX_AGE_DAYS = 7;
 
 // Fuel cost: 8 NIS per 15 km = 0.5333 NIS/km
 // Used to adjust effective_total so closer stores win on tie-breaking
-const FUEL_COST_PER_KM = 8 / 15;
+// Round-trip: ×2 (to store and back), 8 NIS per 15 km
+const FUEL_COST_PER_KM = (8 / 15) * 2;
 
 async function tsSearch(collection: string, params: Record<string, string>) {
   const qs = new URLSearchParams(params).toString();

@@ -269,6 +269,8 @@ function MostCostEffectiveCard({
   const coveragePct = Math.round((store.products_found / totalItems) * 100);
   const hasPromos = store.effective_total < store.total_price;
   const displayTotal = hasPromos ? store.effective_total : store.total_price;
+  const fuelCost = store.distance_km * 2 * (8 / 15); // round-trip, 8 NIS per 15 km
+  const grandTotal = displayTotal + fuelCost;
   const savings = cheapestTotal - displayTotal;
 
   return (
@@ -382,12 +384,29 @@ function MostCostEffectiveCard({
               )}
             </div>
           ))}
+          {/* שורת עלות דלק */}
+          <div
+            className="flex items-center gap-3 p-2.5 rounded-2xl"
+            style={{ background: 'rgba(100,100,200,0.06)', border: '1px solid rgba(100,100,200,0.18)' }}
+          >
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(100,100,200,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 18 }}>
+              ⛽
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>עלות נסיעה</p>
+              <p className="text-xs" style={{ color: '#8a7f75' }}>הלוך וחזור · {(store.distance_km * 2).toFixed(1)} ק&quot;מ</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-sm font-bold" style={{ color: '#5a5aaa' }}>₪{fuelCost.toFixed(2)}</p>
+            </div>
+          </div>
+
           {/* סיכום */}
           <div className="mt-1 p-3 rounded-2xl flex items-center justify-between" style={{ background: 'rgba(176,120,0,0.1)', border: '1px solid rgba(176,120,0,0.2)' }}>
-            <span className="text-sm font-bold" style={{ color: '#7a5500' }}>סה&quot;כ</span>
+            <span className="text-sm font-bold" style={{ color: '#7a5500' }}>סה&quot;כ כולל נסיעה</span>
             <div className="text-right">
-              <p className="text-base font-bold" style={{ color: '#b07800' }}>₪{displayTotal.toFixed(2)}</p>
-              {hasPromos && <p className="text-xs line-through" style={{ color: '#8a7f75' }}>₪{store.total_price.toFixed(2)}</p>}
+              <p className="text-base font-bold" style={{ color: '#b07800' }}>₪{grandTotal.toFixed(2)}</p>
+              <p className="text-xs" style={{ color: '#8a7f75' }}>מוצרים ₪{displayTotal.toFixed(2)} + דלק ₪{fuelCost.toFixed(2)}</p>
             </div>
           </div>
         </div>
@@ -414,6 +433,8 @@ function StoreCard({
   const isTop = rank === 1;
   const hasPromos = store.effective_total < store.total_price;
   const displayTotal = hasPromos ? store.effective_total : store.total_price;
+  const fuelCost = store.distance_km * 2 * (8 / 15); // round-trip, 8 NIS per 15 km
+  const grandTotal = displayTotal + fuelCost;
 
   // Rank medal colors: gold / silver / bronze / plain
   const medalColors: Record<number, { bg: string; text: string; border: string; shadow: string }> = {
@@ -626,6 +647,32 @@ function StoreCard({
                 )}
               </div>
             ))}
+
+            {/* שורת עלות דלק */}
+            <div
+              className="flex items-center gap-3 p-2.5 rounded-2xl"
+              style={{ background: 'rgba(100,100,200,0.06)', border: '1px solid rgba(100,100,200,0.18)' }}
+            >
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(100,100,200,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 18 }}>
+                ⛽
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium leading-tight" style={{ color: '#4F483F' }}>עלות נסיעה</p>
+                <p className="text-xs" style={{ color: '#8a7f75' }}>הלוך וחזור · {(store.distance_km * 2).toFixed(1)} ק&quot;מ</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-sm font-bold" style={{ color: '#5a5aaa' }}>₪{fuelCost.toFixed(2)}</p>
+              </div>
+            </div>
+
+            {/* סיכום כולל נסיעה */}
+            <div className="mt-1 p-3 rounded-2xl flex items-center justify-between" style={{ background: 'rgba(79,72,63,0.07)', border: '1px solid rgba(79,72,63,0.15)' }}>
+              <span className="text-sm font-bold" style={{ color: '#4F483F' }}>סה&quot;כ כולל נסיעה</span>
+              <div className="text-right">
+                <p className="text-base font-bold" style={{ color: isTop ? '#b07800' : '#4F483F' }}>₪{grandTotal.toFixed(2)}</p>
+                <p className="text-xs" style={{ color: '#8a7f75' }}>מוצרים ₪{displayTotal.toFixed(2)} + דלק ₪{fuelCost.toFixed(2)}</p>
+              </div>
+            </div>
           </div>
         )}
       </div>

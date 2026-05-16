@@ -171,6 +171,152 @@ async function searchSubstitutes(
 
 // ─── SubstituteSheet ──────────────────────────────────────────────────────────
 
+// ─── ProductDetailSheet ───────────────────────────────────────────────────────
+
+type PriceHistoryRow = { date: string; price: number; chain_id: string };
+
+function ProductDetailSheet({
+  item, onClose,
+}: {
+  item: ItemResult;
+  onClose: () => void;
+}) {
+  const itemCode = item.resolved_item_code && item.resolved_item_code !== 'group'
+    ? item.resolved_item_code
+    : item.item_code;
+  const [history, setHistory] = useState<PriceHistoryRow[]>([]);
+  const [histLoading, setHistLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/price-history?item_code=${encodeURIComponent(itemCode)}&days=60`)
+      .then(r => r.ok ? r.json() : { history: [] })
+      .then(d => { setHistory(d.history || []); setHistLoading(false); })
+      .catch(() => setHistLoading(false));
+  }, [itemCode]);
+
+  // Simple inline sparkline — last 14 days, single chain aggregated
+  const chartData = (() => {
+    if (history.length === 0) return [];
+    const byDate: Record<string, number[]> = {};
+    history.forEach(r => {
+      if (!byDate[r.date]) byDate[r.date] = [];
+      byDate[r.date].push(r.price);
+    });
+    return Object.entries(byDate)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-14)
+      .map(([date, prices]) => ({ date, price: Math.min(...prices) }));
+  })();
+
+  const minP = chartData.length ? Math.min(...chartData.map(d => d.price)) : 0;
+  const maxP = chartData.length ? Math.max(...chartData.map(d => d.price)) : 1;
+  const W = 280, H = 70, PAD = 8;
+  const xStep = chartData.length > 1 ? (W - PAD * 2) / (chartData.length - 1) : 0;
+  const yScale = (p: number) => maxP === minP ? H / 2 : PAD + ((maxP - p) / (maxP - minP)) * (H - PAD * 2);
+  const points = chartData.map((d, i) => `${PAD + i * xStep},${yScale(d.price)}`).join(' ');
+
+  const displayPrice = item.effective_price != null && item.effective_price < item.price!
+    ? item.effective_price
+    : item.price;
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={onClose} />
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl"
+        style={{ background: '#F5EDE4', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+      >
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div style={{ width: 40, height: 4, borderRadius: 2, background: '#C4B8AC' }} />
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pb-3 pt-1">
+          <button onClick={onClose} style={{ color: '#8a7f75' }}><X size={20} /></button>
+          <Link
+            href={`/product/${itemCode}`}
+            className="text-xs px-3 py-1.5 rounded-xl font-medium"
+            style={{ background: 'rgba(79,72,63,0.1)', color: '#4F483F' }}
+            onClick={onClose}
+          >
+            דף מוצר מלא ›
+          </Link>
+        </div>
+
+        <div className="overflow-y-auto px-5 pb-10 flex flex-col gap-4" style={{ overscrollBehavior: 'contain' }}>
+          {/* Product image + name + price */}
+          <div className="flex items-center gap-4 p-4 rounded-2xl" style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(182,171,156,0.3)' }}>
+            <ProductImg itemCode={itemCode} name={item.item_name} size={72} />
+            <div className="flex-1 min-w-0">
+              {item.group_label && (
+                <p className="text-xs font-bold mb-0.5" style={{ color: item.is_fresh_product ? '#b05a00' : '#BF2C2C' }}>
+                  {item.is_fresh_product ? '🥩' : '📦'} {item.group_label}
+                </p>
+              )}
+              <p className="text-sm font-bold leading-snug" style={{ color: '#4F483F' }}>{item.item_name}</p>
+              <p className="text-xs mt-1" style={{ color: '#8a7f75' }}>×{item.quantity}</p>
+              <div className="mt-2">
+                {item.effective_price != null && item.effective_price < item.price! ? (
+                  <>
+                    <p className="text-lg font-bold" style={{ color: '#2d7a2d' }}>₪{(item.effective_price * item.quantity).toFixed(2)}</p>
+                    <p className="text-xs line-through" style={{ color: '#B6AB9C' }}>₪{item.total!.toFixed(2)}</p>
+                  </>
+                ) : (
+                  <p className="text-lg font-bold" style={{ color: '#2d7a2d' }}>₪{item.total!.toFixed(2)}</p>
+                )}
+                {displayPrice != null && (
+                  <p className="text-xs" style={{ color: '#8a7f75' }}>₪{displayPrice.toFixed(2)} ליח׳</p>
+                )}
+                {item.unit_price != null && item.unit_price > 0 && (
+                  <p className="text-xs" style={{ color: '#8a7f75' }}>₪{item.unit_price.toFixed(2)}/100ג׳</p>
+                )}
+              </div>
+              {item.promotion_description && (
+                <p className="text-xs font-medium mt-1" style={{ color: '#c47a00' }}>🏷️ {item.promotion_description}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Price history sparkline */}
+          <div className="p-4 rounded-2xl" style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(182,171,156,0.3)' }}>
+            <p className="text-sm font-bold mb-3" style={{ color: '#4F483F' }}>היסטוריית מחירים (60 יום)</p>
+            {histLoading ? (
+              <div className="flex justify-center py-4">
+                <div className="animate-spin w-5 h-5 border-2 rounded-full" style={{ borderColor: '#B6AB9C', borderTopColor: 'transparent' }} />
+              </div>
+            ) : chartData.length < 2 ? (
+              <p className="text-xs text-center py-3" style={{ color: '#8a7f75' }}>אין מספיק נתונים</p>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <svg width={W} height={H} style={{ display: 'block', margin: '0 auto' }}>
+                  <polyline
+                    points={points}
+                    fill="none"
+                    stroke="#BF2C2C"
+                    strokeWidth={2}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                  {chartData.map((d, i) => (
+                    <circle key={i} cx={PAD + i * xStep} cy={yScale(d.price)} r={3} fill="#BF2C2C" />
+                  ))}
+                  <text x={PAD} y={H - 2} fontSize={9} fill="#8a7f75">{chartData[0]?.date?.slice(5)}</text>
+                  <text x={W - PAD} y={H - 2} fontSize={9} fill="#8a7f75" textAnchor="end">{chartData[chartData.length - 1]?.date?.slice(5)}</text>
+                  <text x={PAD} y={yScale(minP) - 4} fontSize={9} fill="#2d7a2d">₪{minP.toFixed(2)}</text>
+                  <text x={PAD} y={yScale(maxP) + 12} fontSize={9} fill="#BF2C2C">₪{maxP.toFixed(2)}</text>
+                </svg>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── SubstituteSheet ──────────────────────────────────────────────────────────
+
 function SubstituteSheet({
   item, chainId, storeId, onClose, onReplace,
 }: {
@@ -428,6 +574,7 @@ function StoreCard({
 }) {
   const [open, setOpen] = useState(false);
   const [substituteFor, setSubstituteFor] = useState<ItemResult | null>(null);
+  const [productDetailFor, setProductDetailFor] = useState<ItemResult | null>(null);
   const [updatingList, setUpdatingList] = useState(false);
   const coveragePct = Math.round((store.products_found / totalItems) * 100);
   const isTop = rank === 1;
@@ -575,11 +722,14 @@ function StoreCard({
                       </p>
                     )}
                     {item.found && item.resolved_item_code && item.resolved_item_code !== 'group' ? (
-                      <Link href={`/product/${item.resolved_item_code}`} onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={e => { e.stopPropagation(); setProductDetailFor(item); }}
+                        className="text-right"
+                      >
                         <p className="text-sm font-medium leading-tight underline-offset-2 hover:underline" style={{ color: '#4F483F' }}>
                           {item.item_name}
                         </p>
-                      </Link>
+                      </button>
                     ) : (
                       <p className="text-sm font-medium leading-tight"
                         style={{ color: item.found ? '#4F483F' : '#8a7f75', textDecoration: item.found ? 'none' : 'line-through' }}>
@@ -676,6 +826,13 @@ function StoreCard({
           </div>
         )}
       </div>
+
+      {productDetailFor && (
+        <ProductDetailSheet
+          item={productDetailFor}
+          onClose={() => setProductDetailFor(null)}
+        />
+      )}
 
       {substituteFor && (
         <SubstituteSheet

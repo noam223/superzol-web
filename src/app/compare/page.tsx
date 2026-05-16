@@ -569,7 +569,7 @@ function StoreCard({
   store: StoreResult;
   rank: number;
   totalItems: number;
-  onReplace: (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number) => Promise<void>;
+  onReplace: (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number, groupLabel?: string) => Promise<void>;
   onUpdateList: (store: StoreResult) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -840,7 +840,7 @@ function StoreCard({
           chainId={store.chain_id}
           storeId={store.store_id}
           onClose={() => setSubstituteFor(null)}
-          onReplace={async (oldCode, newItem, storePrice) => { await onReplace(store.store_key, oldCode, newItem, storePrice); setSubstituteFor(null); }}
+          onReplace={async (oldCode, newItem, storePrice) => { await onReplace(store.store_key, oldCode, newItem, storePrice, substituteFor?.group_label); setSubstituteFor(null); }}
         />
       )}
     </>
@@ -1173,7 +1173,7 @@ export default function ComparePage() {
     saveUserLocation(lat, lng, label);
   };
 
-  const handleReplace = useCallback(async (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number) => {
+  const handleReplace = useCallback(async (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number, groupLabel?: string) => {
     // Apply replacement to ALL stores that have oldCode (found OR missing)
     // For the triggering store: use the already-verified storePrice
     // For other stores: check if the substitute exists there too
@@ -1181,7 +1181,10 @@ export default function ComparePage() {
     const updatedStores = await Promise.all(
       currentStores.map(async (s) => {
         // Find the item regardless of found/missing status
-        const existingItem = s.items.find(i => i.item_code === oldCode);
+        // For group items: match by group_label (since item_code may be 'group' for all)
+        const existingItem = groupLabel
+          ? s.items.find(i => i.group_label === groupLabel)
+          : s.items.find(i => i.item_code === oldCode);
         if (!existingItem) return s; // item not in this store at all — skip
 
         const quantity = existingItem.quantity;
@@ -1196,7 +1199,11 @@ export default function ComparePage() {
         }
 
         const updatedItems = s.items.map(item => {
-          if (item.item_code !== oldCode) return item;
+          // Match by group_label for group items, by item_code for regular items
+          const isMatch = groupLabel
+            ? item.group_label === groupLabel
+            : item.item_code === oldCode;
+          if (!isMatch) return item;
           if (price !== null) {
             return {
               ...item,

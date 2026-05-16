@@ -463,7 +463,10 @@ function MostCostEffectiveCard({
 
         {/* Price + savings + chevron */}
         <div className="shrink-0 text-right">
-          <p className="font-bold text-base" style={{ color: '#b07800' }}>₪{displayTotal.toFixed(2)}</p>
+          <p className="font-bold text-base" style={{ color: '#b07800' }}>₪{grandTotal.toFixed(2)}</p>
+          <p className="text-xs" style={{ color: '#8a7f75' }}>
+            🛒 ₪{displayTotal.toFixed(2)} + ⛽ ₪{fuelCost.toFixed(2)}
+          </p>
           {hasPromos && (
             <p className="text-xs line-through" style={{ color: '#8a7f75' }}>₪{store.total_price.toFixed(2)}</p>
           )}
@@ -1176,49 +1179,38 @@ export default function ComparePage() {
   };
 
   const handleReplace = useCallback(async (storeKey: string, oldCode: string, newItem: ListItem, storePrice: number, groupLabel?: string) => {
-    // Apply replacement ONLY to the triggering store (storeKey).
-    // Each store independently resolves which product it carries — replacing in one store
-    // should not affect other stores' product selections.
+    // For the triggering store: replace with the verified storePrice.
+    // For other stores that have the SAME item as MISSING: check if the substitute exists there
+    // and fill it in if found. Stores that already have the original item found are not touched.
     const currentStores = stores;
-    const updatedStores = currentStores.map((s) => {
-      // Only update the triggering store
-      if (s.store_key !== storeKey) return s;
 
-      // Find the item to replace
-      // For group items: match by group_label; for regular items: match by item_code
-      const existingItem = groupLabel
-        ? s.items.find(i => i.group_label === groupLabel)
-        : s.items.find(i => i.item_code === oldCode);
-      if (!existingItem) return s;
-
-      const quantity = existingItem.quantity;
-
+    // Helper to apply a replacement to a single store's items
+    const applyReplacement = (s: StoreResult, price: number): StoreResult => {
       const updatedItems = s.items.map(item => {
         const isMatch = groupLabel
           ? item.group_label === groupLabel
           : item.item_code === oldCode;
         if (!isMatch) return item;
+        const quantity = item.quantity;
         return {
           ...item,
           item_code: newItem.item_code,
           item_name: newItem.item_name,
           resolved_item_code: newItem.item_code,
-          group_label: undefined,   // no longer a group — it's a specific product now
+          group_label: undefined,
           found: true,
-          price: storePrice,
-          total: storePrice * quantity,
-          effective_price: null,    // reset promo — new item may have different promo
+          price,
+          total: price * quantity,
+          effective_price: null,
           promotion_description: null,
         };
       });
-
       const foundCount = updatedItems.filter(i => i.found).length;
       const total = updatedItems.reduce((sum, i) => sum + (i.total || 0), 0);
       const effectiveTotal = updatedItems.reduce((sum, i) => {
         if (!i.found) return sum;
         const ep = i.effective_price != null && i.effective_price < (i.price ?? Infinity)
-          ? i.effective_price
-          : i.price ?? 0;
+          ? i.effective_price : i.price ?? 0;
         return sum + ep * i.quantity;
       }, 0);
       return {
@@ -1230,7 +1222,31 @@ export default function ComparePage() {
         effective_total: effectiveTotal,
         fuel_adjusted_total: effectiveTotal + s.distance_km * 2 * (8 / 15),
       };
-    });
+    };
+
+    // Process all stores in parallel
+    const updatedStores = await Promise.all(
+      currentStores.map(async (s) => {
+        if (s.store_key === storeKey) {
+          // Triggering store — price already verified
+          return applyReplacement(s, storePrice);
+        }
+
+        // Other stores: only fill in if the item is currently MISSING
+        const existingItem = groupLabel
+          ? s.items.find(i => i.group_label === groupLabel)
+          : s.items.find(i => i.item_code === oldCode);
+
+        // Skip if item not in this store, or if it's already found (don't override)
+        if (!existingItem || existingItem.found) return s;
+
+        // Check if substitute exists in this store
+        const price = await checkItemInStore(s.chain_id, s.store_id, newItem.item_code);
+        if (price === null) return s; // substitute not available here — leave as missing
+
+        return applyReplacement(s, price);
+      })
+    );
 
     // Re-sort by same logic as API: most found first, then lowest effective_total (with promos)
     const sortedStores = [...updatedStores].sort((a, b) => {

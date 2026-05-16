@@ -94,6 +94,21 @@ function ProductImg({ itemCode, name, size = 40 }: { itemCode: string; name: str
   );
 }
 
+/** Remove chain name prefix from store name if it appears at the start (case-insensitive, trimmed).
+ *  e.g. chain_name="רמי לוי", store_name="רמי לוי נתניה" → "נתניה"
+ *  If the store name equals the chain name exactly, return it as-is.
+ */
+function stripChainPrefix(storeName: string, chainName: string): string {
+  const s = storeName.trim();
+  const c = chainName.trim();
+  if (!c) return s;
+  if (s.startsWith(c)) {
+    const rest = s.slice(c.length).trim();
+    return rest || s; // don't return empty string
+  }
+  return s;
+}
+
 async function fetchProductFromIndex(itemCode: string): Promise<IndexProduct | null> {
   try {
     const res = await fetch(`/api/search?collection=${PRODUCTS_INDEX}&doc_id=${itemCode}`);
@@ -452,7 +467,7 @@ function MostCostEffectiveCard({
               הכי משתלמת!
             </span>
           </div>
-          <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
+          <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{stripChainPrefix(store.store_name, store.chain_name)}</p>
           <div className="flex items-center gap-3 mt-0.5 flex-wrap">
             <span className="text-xs" style={{ color: '#8a7f75' }}>📍 {store.distance_km.toFixed(1)} ק&quot;מ</span>
             <span className="text-xs font-medium" style={{ color: store.products_missing > 0 ? '#b85c00' : '#2d7a2d' }}>
@@ -644,7 +659,7 @@ function StoreCard({
             )}
             {/* Store name */}
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{store.store_name}</p>
+              <p className="font-bold text-sm" style={{ color: '#4F483F' }}>{stripChainPrefix(store.store_name, store.chain_name)}</p>
             </div>
             {/* Bottom row: distance + coverage */}
             <div className="flex items-center gap-3 mt-0.5 flex-wrap">

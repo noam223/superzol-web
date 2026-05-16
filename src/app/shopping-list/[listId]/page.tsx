@@ -981,6 +981,8 @@ export default function ShoppingListDetailPage() {
   const [searchResults, setSearchResults] = useState<IndexProduct[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [allGroups, setAllGroups] = useState<{ id: string; name: string; image_item_code: string | null }[]>([]);
+  const [matchingGroups, setMatchingGroups] = useState<{ id: string; name: string; image_item_code: string | null }[]>([]);
 
   // Long-press refs per item
   const pressTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -1030,20 +1032,65 @@ export default function ShoppingListDetailPage() {
     if (isNamedList) saveNamedListItems(namedListId, updated);
   }, [isNamedList, namedListId]);
 
-  // Inline search debounce
+  // Load all groups once on mount (for inline search)
+  useEffect(() => {
+    if (isStoreList) return;
+    supabase.from('product_groups').select('id, name, image_item_code').then(({ data }) => {
+      if (data) setAllGroups(data as { id: string; name: string; image_item_code: string | null }[]);
+    });
+  }, [isStoreList]);
+
+  // Inline search debounce — products + groups
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    if (!searchQuery.trim()) { setSearchResults([]); setMatchingGroups([]); return; }
+    const qLower = searchQuery.toLowerCase();
+    setMatchingGroups(allGroups.filter(g =>
+      g.name.toLowerCase().includes(qLower) ||
+      qLower.split(/\s+/).some(w => w.length >= 2 && g.name.includes(w))
+    ).slice(0, 3));
     searchDebounceRef.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const { hits } = await searchProductsIndex(searchQuery, { perPage: 8 });
+        const { hits } = await searchProductsIndex(searchQuery, { perPage: 6 });
         setSearchResults(hits);
       } catch { setSearchResults([]); }
       finally { setSearchLoading(false); }
     }, 300);
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
-  }, [searchQuery]);
+  }, [searchQuery, allGroups]);
+
+  // Add a group to the current list
+  const addGroupToList = useCallback(async (group: { id: string; name: string }) => {
+    if (isNamedList) {
+      const newItem: ListItem = {
+        id: crypto.randomUUID(),
+        item_code: 'group',
+        item_name: group.name,
+        quantity: 1,
+        checked: false,
+        group_id: group.id,
+      };
+      setItems(prev => { const u = [newItem, ...prev]; persistNamedItems(u); return u; });
+      toast.success(`📦 ${group.name} נוסף`);
+    } else {
+      if (!user) { toast.error('התחבר כדי לשמור לרשימה'); return; }
+      const { data, error } = await supabase.from('shopping_list_items').insert({
+        user_id: user.id,
+        item_code: 'group',
+        item_name: group.name,
+        quantity: 1,
+        checked: false,
+        group_id: group.id,
+      }).select().single();
+      if (error) { toast.error('שגיאה בהוספה'); return; }
+      setItems(prev => [data as ListItem, ...prev]);
+      toast.success(`📦 ${group.name} נוסף`);
+    }
+    setSearchQuery('');
+    setSearchResults([]);
+    setMatchingGroups([]);
+  }, [isNamedList, user, persistNamedItems]);
 
   // Add a product to the current list
   const addItemToList = useCallback(async (product: IndexProduct) => {
@@ -1297,8 +1344,33 @@ export default function ShoppingListDetailPage() {
                 </button>
               )}
             </div>
-            {searchResults.length > 0 && (
+            {(matchingGroups.length > 0 || searchResults.length > 0) && (
               <div className="absolute top-full right-0 left-0 z-50 mt-1 rounded-2xl overflow-hidden shadow-lg" style={{ background: 'rgba(248,244,240,0.98)', border: '1.5px solid rgba(182,171,156,0.4)' }}>
+                {/* Groups first */}
+                {matchingGroups.map(group => (
+                  <button
+                    key={group.id}
+                    onClick={() => addGroupToList(group)}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-right transition-colors hover:bg-red-50 active:bg-red-100"
+                    style={{ borderBottom: '1px solid rgba(182,171,156,0.2)', fontFamily: 'Heebo, sans-serif', background: 'rgba(191,44,44,0.04)' }}
+                  >
+                    <img
+                      src={group.image_item_code ? getProductImageUrl(group.image_item_code) : ''}
+                      alt={group.name}
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      className="w-10 h-10 rounded-xl object-contain shrink-0"
+                      style={{ background: '#f0e8e0' }}
+                    />
+                    <div className="flex flex-col flex-1 min-w-0 text-right">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs px-1.5 py-0.5 rounded-full font-bold" style={{ background: 'rgba(191,44,44,0.15)', color: '#BF2C2C' }}>📦 קבוצה</span>
+                      </div>
+                      <span className="text-sm font-medium truncate" style={{ color: '#4F483F' }}>{group.name}</span>
+                    </div>
+                    <Plus size={16} style={{ color: '#BF2C2C', flexShrink: 0 }} />
+                  </button>
+                ))}
+                {/* Products */}
                 {searchResults.map(product => (
                   <button
                     key={product.item_code}

@@ -448,10 +448,10 @@ function MostCostEffectiveCard({
         {/* Badge + logo stacked */}
         <div className="shrink-0 flex flex-col items-center gap-1.5">
           <span className="text-lg">⭐</span>
-          {getChainLogoUrl(store.chain_name) ? (
+          {getChainLogoUrl(store.chain_name, store.chain_id) ? (
             <div style={{ width: 44, height: 28, borderRadius: 7, overflow: 'hidden', background: '#fff', border: '1px solid rgba(182,171,156,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
+              <img src={getChainLogoUrl(store.chain_name, store.chain_id)!} alt={store.chain_name}
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           ) : (
@@ -638,10 +638,10 @@ function StoreCard({
             >
               {rank}
             </div>
-            {getChainLogoUrl(store.chain_name) ? (
+            {getChainLogoUrl(store.chain_name, store.chain_id) ? (
               <div style={{ width: 44, height: 28, borderRadius: 7, overflow: 'hidden', background: '#fff', border: '1px solid rgba(182,171,156,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={getChainLogoUrl(store.chain_name)!} alt={store.chain_name}
+                <img src={getChainLogoUrl(store.chain_name, store.chain_id)!} alt={store.chain_name}
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </div>
             ) : (

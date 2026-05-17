@@ -98,9 +98,9 @@ function ProductImg({ itemCode, name, size = 40 }: { itemCode: string; name: str
  *  e.g. chain_name="רמי לוי", store_name="רמי לוי נתניה" → "נתניה"
  *  If the store name equals the chain name exactly, return it as-is.
  */
-function stripChainPrefix(storeName: string, chainName: string): string {
-  const s = storeName.trim();
-  const c = chainName.trim();
+function stripChainPrefix(storeName: string | undefined | null, chainName: string | undefined | null): string {
+  const s = (storeName ?? '').trim();
+  const c = (chainName ?? '').trim();
   if (!c) return s;
   if (s.startsWith(c)) {
     const rest = s.slice(c.length).trim();

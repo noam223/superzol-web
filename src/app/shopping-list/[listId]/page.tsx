@@ -7,7 +7,7 @@ import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Squ
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { getChainLogoUrl } from '@/lib/chainLogos';
 import { getUserLocation } from '@/lib/location';
-import { searchProductsIndex, IndexProduct } from '@/lib/typesense';
+import { searchProductsIndex, IndexProduct, formatUnitInfo } from '@/lib/typesense';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -761,9 +761,10 @@ function SwipeRow({
         <RowImage itemCode={item.item_code} name={item.item_name} groupId={item.group_id} />
       </div>
 
-      {/* ── CENTER: name + subtitle — tap here opens BottomSheet ── */}
+      {/* ── CENTER: name + subtitle — tap/click here opens BottomSheet ── */}
       <div className="flex-1 min-w-0 px-3 py-3"
         onTouchStart={e => handleTouchStart(e, true)}
+        onClick={() => { if (!multiSelect && !isDragging) onTap(); }}
       >
         {item.item_code && item.item_code !== 'group' ? (
           <Link href={`/product/${item.item_code}`} onClick={e => e.stopPropagation()}>
@@ -1371,27 +1372,38 @@ export default function ShoppingListDetailPage() {
                   </button>
                 ))}
                 {/* Products */}
-                {searchResults.map(product => (
-                  <button
-                    key={product.item_code}
-                    onClick={() => addItemToList(product)}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-right transition-colors hover:bg-amber-50 active:bg-amber-100"
-                    style={{ borderBottom: '1px solid rgba(182,171,156,0.2)', fontFamily: 'Heebo, sans-serif' }}
-                  >
-                    <img
-                      src={getProductImageUrl(product.item_code)}
-                      alt={product.item_name}
-                      onError={e => { (e.target as HTMLImageElement).src = getProductImageFallback(product.item_code); }}
-                      className="w-10 h-10 rounded-xl object-contain shrink-0"
-                      style={{ background: '#f0e8e0' }}
-                    />
-                    <div className="flex flex-col flex-1 min-w-0 text-right">
-                      <span className="text-sm font-medium truncate" style={{ color: '#4F483F' }}>{product.item_name}</span>
-                      {product.manufacturer_name && <span className="text-xs truncate" style={{ color: '#8a7f75' }}>{product.manufacturer_name}</span>}
-                    </div>
-                    <Plus size={16} style={{ color: '#BF2C2C', flexShrink: 0 }} />
-                  </button>
-                ))}
+                {searchResults.map(product => {
+                  const unitInfo = formatUnitInfo(product);
+                  return (
+                    <button
+                      key={product.item_code}
+                      onClick={() => addItemToList(product)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-right transition-colors hover:bg-amber-50 active:bg-amber-100"
+                      style={{ borderBottom: '1px solid rgba(182,171,156,0.2)', fontFamily: 'Heebo, sans-serif' }}
+                    >
+                      {/* Image + unit badge */}
+                      <div className="flex flex-col items-center gap-0.5 shrink-0">
+                        <img
+                          src={getProductImageUrl(product.item_code)}
+                          alt={product.item_name}
+                          onError={e => { (e.target as HTMLImageElement).src = getProductImageFallback(product.item_code); }}
+                          className="w-10 h-10 rounded-xl object-contain"
+                          style={{ background: '#f0e8e0' }}
+                        />
+                        {unitInfo && (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: '#6b6259', background: 'rgba(182,171,156,0.28)', borderRadius: 4, padding: '1px 3px', maxWidth: 40, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.4 }}>
+                            {unitInfo}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col flex-1 min-w-0 text-right">
+                        <span className="text-sm font-medium truncate" style={{ color: '#4F483F' }}>{product.item_name}</span>
+                        {product.manufacturer_name && <span className="text-xs truncate" style={{ color: '#8a7f75' }}>{product.manufacturer_name}</span>}
+                      </div>
+                      <Plus size={16} style={{ color: '#BF2C2C', flexShrink: 0 }} />
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

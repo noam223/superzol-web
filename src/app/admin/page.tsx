@@ -11,6 +11,7 @@ import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { formatUnitInfo } from '@/lib/typesense';
 import toast from 'react-hot-toast';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 
 const BarcodeScanner = dynamic(() => import('@/components/BarcodeScanner'), { ssr: false });
 
@@ -158,7 +159,7 @@ function GroupsTab() {
 
   const loadGroups = async () => {
     setGroupsLoading(true);
-    const { data } = await supabase.from('product_groups').select('*, product_group_items(count)').order('created_at', { ascending: false });
+    const { data } = await supabase.from('product_groups').select('*, product_group_items(count)').order('name', { ascending: true });
     setGroups((data || []).map((g: ProductGroup & { product_group_items: { count: number }[] }) => ({ ...g, item_count: g.product_group_items?.[0]?.count ?? 0 })));
     setGroupsLoading(false);
   };
@@ -641,10 +642,12 @@ function GroupsTab() {
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
-                              {item.item_name || item.item_code}
-                              {isImage && <span className="mr-1.5 text-xs font-normal" style={{ color: '#BF2C2C' }}>תמונת קבוצה</span>}
-                            </p>
+                            <Link href={`/product/${item.item_code}`} target="_blank" className="hover:underline">
+                              <p className="text-sm font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
+                                {item.item_name || item.item_code}
+                                {isImage && <span className="mr-1.5 text-xs font-normal" style={{ color: '#BF2C2C' }}>תמונת קבוצה</span>}
+                              </p>
+                            </Link>
                             <p className="text-xs" style={{ color: '#8a7f75' }}>{item.item_code}</p>
                           </div>
                           {/* Set as image button */}

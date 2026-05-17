@@ -140,8 +140,13 @@ function GroupsTab() {
   // All item_codes that belong to ANY group (for filtering search results)
   const [allGroupedCodes, setAllGroupedCodes] = useState<Set<string>>(new Set());
   const [showScanner, setShowScanner] = useState(false);
+  // Rename group state
+  const [renamingGroup, setRenamingGroup] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [savingRename, setSavingRename] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   const loadGroups = async () => {
     setGroupsLoading(true);
@@ -167,6 +172,7 @@ function GroupsTab() {
 
   const selectGroup = (group: ProductGroup) => {
     setSelectedGroup(group); setSearchQuery(''); setSearchResults([]); setSelectedCodes(new Set());
+    setRenamingGroup(false); setRenameValue('');
     loadGroupItems(group.id);
     setTimeout(() => searchInputRef.current?.focus(), 100);
   };
@@ -178,6 +184,36 @@ function GroupsTab() {
     if (error) { toast.error('שגיאה ביצירת קבוצה'); }
     else { toast.success(`קבוצה "${newGroupName}" נוצרה`); setNewGroupName(''); setNewGroupDesc(''); setShowNewGroupForm(false); await loadGroups(); if (data) selectGroup({ ...data, item_count: 0 }); }
     setAddingGroup(false);
+  };
+
+  const startRename = () => {
+    if (!selectedGroup) return;
+    setRenameValue(selectedGroup.name);
+    setRenamingGroup(true);
+    setTimeout(() => renameInputRef.current?.focus(), 50);
+  };
+
+  const cancelRename = () => {
+    setRenamingGroup(false);
+    setRenameValue('');
+  };
+
+  const saveRename = async () => {
+    if (!selectedGroup || !renameValue.trim()) return;
+    const trimmed = renameValue.trim();
+    if (trimmed === selectedGroup.name) { cancelRename(); return; }
+    setSavingRename(true);
+    const { error } = await supabase.from('product_groups').update({ name: trimmed }).eq('id', selectedGroup.id);
+    if (error) {
+      toast.error('שגיאה בשינוי שם');
+    } else {
+      setSelectedGroup(prev => prev ? { ...prev, name: trimmed } : prev);
+      setGroups(prev => prev.map(g => g.id === selectedGroup.id ? { ...g, name: trimmed } : g));
+      toast.success('שם הקבוצה עודכן ✓', { duration: 1500 });
+      setRenamingGroup(false);
+      setRenameValue('');
+    }
+    setSavingRename(false);
   };
 
   const deleteGroup = async (group: ProductGroup) => {
@@ -412,7 +448,48 @@ function GroupsTab() {
             <div className="flex items-center gap-3 mb-4">
               <ProductThumb itemCode={selectedGroup.image_item_code || ''} name={selectedGroup.name} />
               <div className="flex-1 min-w-0">
-                <h2 className="text-lg font-bold truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{selectedGroup.name}</h2>
+                {renamingGroup ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      ref={renameInputRef}
+                      type="text"
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') saveRename();
+                        if (e.key === 'Escape') cancelRename();
+                      }}
+                      className="flex-1 min-w-0 px-2 py-1 rounded-lg text-base font-bold outline-none"
+                      style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif', background: 'rgba(255,255,255,0.85)', border: '1.5px solid rgba(191,44,44,0.5)' }}
+                    />
+                    <button
+                      onClick={saveRename}
+                      disabled={savingRename || !renameValue.trim()}
+                      className="shrink-0 p-1.5 rounded-lg disabled:opacity-40 hover:opacity-80"
+                      style={{ background: '#BF2C2C', color: 'white' }}
+                      title="שמור שם"
+                    >
+                      <Save size={14} />
+                    </button>
+                    <button
+                      onClick={cancelRename}
+                      className="shrink-0 p-1.5 rounded-lg hover:opacity-70"
+                      style={{ background: 'rgba(182,171,156,0.25)', color: '#4F483F' }}
+                      title="בטל"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={startRename}
+                    className="flex items-center gap-1.5 group/rename text-right w-full"
+                    title="לחץ לשינוי שם"
+                  >
+                    <h2 className="text-lg font-bold truncate group-hover/rename:underline" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{selectedGroup.name}</h2>
+                    <Pencil size={13} className="shrink-0 opacity-0 group-hover/rename:opacity-60 transition-opacity" style={{ color: '#4F483F' }} />
+                  </button>
+                )}
                 {selectedGroup.description && <p className="text-xs mt-0.5 truncate" style={{ color: '#8a7f75' }}>{selectedGroup.description}</p>}
               </div>
               {/* Fresh product toggle */}

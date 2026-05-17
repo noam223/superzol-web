@@ -22,7 +22,7 @@ const CHAIN_ID_LOGO_MAP: Record<string, string> = {
   '7290700100008': '/chain-logos/hezi-hinam.png',  // חצי חינם
 };
 
-export function getChainLogoUrl(chainName: string, chainId?: string): string | null {
+export function getChainLogoUrl(chainName: string | undefined | null, chainId?: string): string | null {
   // Try chain_id first (most reliable)
   if (chainId && CHAIN_ID_LOGO_MAP[chainId]) {
     return CHAIN_ID_LOGO_MAP[chainId];

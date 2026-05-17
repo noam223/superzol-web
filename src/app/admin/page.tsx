@@ -8,6 +8,7 @@ import {
   Package, Star, Pencil, Save, GripVertical, Camera, ScanBarcode,
 } from 'lucide-react';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
+import { formatUnitInfo } from '@/lib/typesense';
 import toast from 'react-hot-toast';
 import dynamic from 'next/dynamic';
 
@@ -39,6 +40,7 @@ type SearchResult = {
   item_name: string;
   manufacturer_name?: string;
   unit_qty?: string;
+  quantity?: number;
   unit_of_measure?: string;
   min_price: number;
   chain_count: number;
@@ -56,20 +58,26 @@ type Tab = 'groups' | 'products' | 'featured';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-function ProductThumb({ itemCode, name }: { itemCode: string; name: string }) {
+function ProductThumb({ itemCode, name, unitInfo }: { itemCode: string; name: string; unitInfo?: string | null }) {
   const [src, setSrc] = useState(() => getProductImageUrl(itemCode));
   const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <div style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, background: 'linear-gradient(135deg,#f0e8e0,#e8ddd5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🛒</div>
-    );
-  }
-  return (
+  const img = failed ? (
+    <div style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, background: 'linear-gradient(135deg,#f0e8e0,#e8ddd5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🛒</div>
+  ) : (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={src} alt={name}
       onError={() => { if (src === getProductImageUrl(itemCode)) setSrc(getProductImageFallback(itemCode)); else setFailed(true); }}
       style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 8, flexShrink: 0, background: '#f8f4f0' }}
     />
+  );
+  if (!unitInfo) return img;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+      {img}
+      <span style={{ fontSize: 9, fontWeight: 700, color: '#6b6259', background: 'rgba(182,171,156,0.28)', borderRadius: 5, padding: '1px 4px', maxWidth: 44, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.4 }}>
+        {unitInfo}
+      </span>
+    </div>
   );
 }
 
@@ -589,7 +597,7 @@ function GroupsTab() {
                             </button>
                             {/* Main row — click to toggle in group */}
                             <button onClick={() => toggleItemInGroup(product)} disabled={isAdding} className="flex-1 flex items-center gap-3 text-right disabled:opacity-60">
-                              <ProductThumb itemCode={product.item_code} name={product.item_name} />
+                              <ProductThumb itemCode={product.item_code} name={product.item_name} unitInfo={formatUnitInfo(product)} />
                               <div className="flex-1 min-w-0 text-right">
                                 <p className="text-sm font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
                                   {idx === 0 && <span className="text-xs opacity-40 ml-1">[Enter]</span>}{product.item_name}
@@ -727,7 +735,7 @@ function ProductsTab() {
           <div className="flex flex-col gap-1.5">
             {searchResults.map(p => (
               <button key={p.item_code} onClick={() => selectProduct(p)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-right transition-all" style={{ background: selectedProduct?.item_code === p.item_code ? 'rgba(191,44,44,0.1)' : 'rgba(233,216,197,0.85)', border: selectedProduct?.item_code === p.item_code ? '1.5px solid rgba(191,44,44,0.35)' : '1.5px solid rgba(182,171,156,0.4)' }}>
-                <ProductThumb itemCode={p.item_code} name={p.item_name} />
+                <ProductThumb itemCode={p.item_code} name={p.item_name} unitInfo={formatUnitInfo(p)} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{p.item_name}</p>
                   <p className="text-xs" style={{ color: '#8a7f75' }}>{p.item_code}</p>
@@ -952,7 +960,7 @@ function FeaturedTab() {
                     className="w-full flex items-center gap-3 px-3 py-2.5 border-b last:border-b-0 text-right transition-colors hover:bg-black/5 disabled:opacity-60"
                     style={{ borderColor: 'rgba(182,171,156,0.2)' }}
                   >
-                    <ProductThumb itemCode={p.item_code} name={p.item_name} />
+                    <ProductThumb itemCode={p.item_code} name={p.item_name} unitInfo={formatUnitInfo(p)} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{p.item_name}</p>
                       <p className="text-xs" style={{ color: '#8a7f75' }}>{p.item_code} · ₪{p.min_price?.toFixed(2)}</p>

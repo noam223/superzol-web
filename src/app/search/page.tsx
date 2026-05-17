@@ -453,9 +453,17 @@ export default function SearchPage() {
                     border: '1.5px solid rgba(182, 171, 156, 0.4)',
                   }}
                 >
-                  {/* Image */}
-                  <Link href={`/product/${product.item_code}`} className="shrink-0">
+                  {/* Image + unit badge */}
+                  <Link href={`/product/${product.item_code}`} className="shrink-0 flex flex-col items-center gap-1">
                     <ProductImage itemCode={product.item_code} name={product.item_name} size={72} />
+                    {formatUnitInfo(product) && (
+                      <span
+                        className="text-xs font-semibold px-1.5 py-0.5 rounded-lg text-center leading-tight"
+                        style={{ background: 'rgba(182,171,156,0.25)', color: '#6b6259', maxWidth: 72, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      >
+                        {formatUnitInfo(product)}
+                      </span>
+                    )}
                   </Link>
 
                   {/* Info */}
@@ -469,11 +477,6 @@ export default function SearchPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       {isValidManufacturerName(product.manufacturer_name) && (
                         <p className="text-xs" style={{ color: '#8a7f75' }}>{product.manufacturer_name}</p>
-                      )}
-                      {formatUnitInfo(product) && (
-                        <p className="text-xs" style={{ color: '#8a7f75' }}>
-                          {formatUnitInfo(product)}
-                        </p>
                       )}
                       {formatLastUpdated(product.last_updated) && (
                         <p className="text-xs" style={{ color: '#B6AB9C' }}>

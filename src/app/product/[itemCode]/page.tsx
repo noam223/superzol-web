@@ -333,20 +333,26 @@ export default function ProductPage() {
             {/* ── Header card ── */}
             <div className="rounded-3xl p-5 mb-5 flex items-start gap-4"
               style={{ background: 'rgba(233, 216, 197, 0.85)', border: '1.5px solid rgba(182, 171, 156, 0.5)', backdropFilter: 'blur(8px)' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={imgSrc} alt={product.item_name}
-                onError={() => { if (imgSrc === getProductImageUrl(itemCode)) setImgSrc(getProductImageFallback(itemCode)); }}
-                style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: 16, background: 'white', flexShrink: 0 }}
-              />
+              {/* Image + unit badge */}
+              <div className="flex flex-col items-center gap-1.5 shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imgSrc} alt={product.item_name}
+                  onError={() => { if (imgSrc === getProductImageUrl(itemCode)) setImgSrc(getProductImageFallback(itemCode)); }}
+                  style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: 16, background: 'white' }}
+                />
+                {formatUnitInfo(product) && (
+                  <span
+                    className="text-xs font-bold px-2 py-0.5 rounded-lg text-center"
+                    style={{ background: 'rgba(182,171,156,0.3)', color: '#4F483F', maxWidth: 80, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  >
+                    {formatUnitInfo(product)}
+                  </span>
+                )}
+              </div>
               <div className="flex-1 min-w-0">
                 <h1 className="text-lg font-bold mb-1" style={{ color: '#4F483F' }}>{product.item_name}</h1>
                 {isValidManufacturerName(product.manufacturer_name) && (
                   <p className="text-xs mb-1" style={{ color: '#8a7f75' }}>{product.manufacturer_name}</p>
-                )}
-                {formatUnitInfo(product) && (
-                  <p className="text-xs mb-1" style={{ color: '#8a7f75' }}>
-                    {formatUnitInfo(product)}
-                  </p>
                 )}
                 <p className="text-xs mb-1" style={{ color: '#B6AB9C' }}>ברקוד: {itemCode}</p>
                 {formatLastUpdated(product.last_updated) && (

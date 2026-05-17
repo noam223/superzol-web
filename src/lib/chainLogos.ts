@@ -1,5 +1,5 @@
 /**
- * Maps chain_name (Hebrew) to logo filename in /chain-logos/
+ * Maps chain_name (Hebrew) or chain_id to logo filename in /chain-logos/
  * Keys are substrings that may appear in the full chain_name stored in Typesense.
  */
 const CHAIN_LOGO_MAP: Array<{ key: string; url: string }> = [
@@ -12,9 +12,21 @@ const CHAIN_LOGO_MAP: Array<{ key: string; url: string }> = [
   { key: 'פוליצר',     url: '/chain-logos/politzer.png' },
   { key: 'קשת',        url: '/chain-logos/keshet.jpg' },
   { key: 'פרש מרקט',   url: '/chain-logos/FreshMarket.png' },
+  { key: 'חצי חינם',   url: '/chain-logos/hezi-hinam.png' },
+  { key: 'תוצרת חקלאית', url: '/chain-logos/hezi-hinam.png' },
+  { key: 'כל בו',      url: '/chain-logos/hezi-hinam.png' },
 ];
 
-export function getChainLogoUrl(chainName: string): string | null {
+/** Maps chain_id → logo URL (fallback when store_name doesn't match) */
+const CHAIN_ID_LOGO_MAP: Record<string, string> = {
+  '7290700100008': '/chain-logos/hezi-hinam.png',  // חצי חינם
+};
+
+export function getChainLogoUrl(chainName: string, chainId?: string): string | null {
+  // Try chain_id first (most reliable)
+  if (chainId && CHAIN_ID_LOGO_MAP[chainId]) {
+    return CHAIN_ID_LOGO_MAP[chainId];
+  }
   if (!chainName) return null;
   const normalized = chainName.trim();
   // Exact match first

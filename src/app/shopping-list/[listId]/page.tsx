@@ -864,34 +864,62 @@ function SwipeRow({
     <div className="relative" style={{ borderRadius: 16 }}>
       {/* Inner clip wrapper — clips action panels + sliding content, but NOT the trash button */}
       <div style={{ borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
-        {/* LEFT panel — revealed when swiping RIGHT; icon on right edge (closest to sliding content) */}
+        {/* LEFT panel — revealed when swiping RIGHT */}
+        {/* Gradient: rich green on left fading to transparent on right; icon ~25% from right */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            paddingRight: 20,
-            background: `linear-gradient(to right, rgba(45,122,45,0.95) 0%, rgba(45,122,45,0.6) 60%, rgba(45,122,45,0) 100%)`,
+            display: 'flex', alignItems: 'center',
+            background: `linear-gradient(to right,
+              rgba(22,101,52,1) 0%,
+              rgba(34,139,34,0.92) 30%,
+              rgba(74,222,128,0.55) 65%,
+              rgba(74,222,128,0) 100%)`,
             opacity: rightProgress,
             pointerEvents: 'none',
             transition: isDragging ? 'none' : 'opacity 0.2s ease',
           }}
         >
-          <Check size={28} color="white" strokeWidth={3} />
+          {/* Icon sits ~25% from the right edge */}
+          <div style={{ position: 'absolute', right: '22%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.22)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            }}>
+              <Check size={26} color="white" strokeWidth={3} />
+            </div>
+          </div>
         </div>
 
-        {/* RIGHT panel — revealed when swiping LEFT; icon on left edge (closest to sliding content) */}
+        {/* RIGHT panel — revealed when swiping LEFT */}
+        {/* Gradient: rich red on right fading to transparent on left; icon ~25% from left */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
-            paddingLeft: 20,
-            background: `linear-gradient(to left, rgba(191,44,44,0.95) 0%, rgba(191,44,44,0.6) 60%, rgba(191,44,44,0) 100%)`,
+            display: 'flex', alignItems: 'center',
+            background: `linear-gradient(to left,
+              rgba(153,27,27,1) 0%,
+              rgba(220,38,38,0.92) 30%,
+              rgba(252,165,165,0.55) 65%,
+              rgba(252,165,165,0) 100%)`,
             opacity: leftProgress,
             pointerEvents: 'none',
             transition: isDragging ? 'none' : 'opacity 0.2s ease',
           }}
         >
-          <Trash2 size={28} color="white" strokeWidth={2.5} />
+          {/* Icon sits ~25% from the left edge */}
+          <div style={{ position: 'absolute', left: '22%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.22)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            }}>
+              <Trash2 size={26} color="white" strokeWidth={2.5} />
+            </div>
+          </div>
         </div>
 
         {/* MAIN content — slides with touch, tinted during drag */}

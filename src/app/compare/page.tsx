@@ -978,6 +978,7 @@ type CacheBaseItem = { item_code: string; group_label?: string; quantity: number
 
 type CompareCache = {
   timestamp: number;
+  radiusKm: number;
   baseItems: CacheBaseItem[];
   storeResults: StoreResult[];
   mostCostEffectiveKey: string | null;
@@ -1224,20 +1225,35 @@ export default function ComparePage() {
       let finalStores: StoreResult[];
       let finalMceKey: string | null;
 
+      // ── Radius change handling ───────────────────────────────────────────────
+      // If radius decreased: filter cached stores to those within new radius (no API call)
+      // If radius increased: cache is invalid — must full-fetch (new stores may be in range)
+      const cachedRadius = cache?.radiusKm ?? null;
+      const radiusDecreased = cache && cachedRadius !== null && radius < cachedRadius;
+      const radiusIncreased = cache && cachedRadius !== null && radius > cachedRadius;
+
+      if (radiusIncreased) {
+        // Radius grew — must refetch everything
+        clearCache();
+      }
+
+      // Reload cache after potential clear
+      const freshCache = radiusIncreased ? null : cache;
+
       // Determine if cache is usable:
       // - cache must exist
       // - no item removed or quantity changed (only additions allowed for incremental)
       let cacheUsable = false;
       let newItems: ListItem[] = [];
 
-      if (cache) {
+      if (freshCache) {
         const baseMap = new Map<string, CacheBaseItem>(
-          cache.baseItems.map(bi => [itemKey(bi), bi])
+          freshCache.baseItems.map(bi => [itemKey(bi), bi])
         );
 
         // Check for removals or quantity changes
         let hasRemovedOrChanged = false;
-        for (const bi of cache.baseItems) {
+        for (const bi of freshCache.baseItems) {
           const key = itemKey(bi);
           const current = currentMap.get(key);
           if (!current || current.qty !== bi.quantity) {
@@ -1247,17 +1263,24 @@ export default function ComparePage() {
         }
 
         if (!hasRemovedOrChanged) {
-          // Find truly new items (not in cache baseItems)
           newItems = items.filter(it => !baseMap.has(itemKey(it)));
           cacheUsable = true;
         }
       }
 
-      if (cacheUsable && cache) {
-        if (newItems.length === 0) {
-          // Nothing new — use cache directly, preserve original MCE key
-          finalStores = cache.storeResults;
-          finalMceKey = cache.mostCostEffectiveKey;
+      if (cacheUsable && freshCache) {
+        if (radiusDecreased) {
+          // Filter out stores beyond new radius — no API call needed
+          const filtered = freshCache.storeResults.filter(s => s.distance_km <= radius);
+          finalStores = filtered;
+          // Recalculate MCE key from filtered stores
+          finalMceKey = filtered.length > 0
+            ? filtered.reduce((a, b) => a.fuel_adjusted_total <= b.fuel_adjusted_total ? a : b).store_key
+            : null;
+        } else if (newItems.length === 0) {
+          // Nothing new, same radius — use cache directly
+          finalStores = freshCache.storeResults;
+          finalMceKey = freshCache.mostCostEffectiveKey;
         } else {
           // Fetch only new items, merge with cache
           const res = await fetch('/api/compare', {
@@ -1268,15 +1291,13 @@ export default function ComparePage() {
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || 'שגיאה');
           const newStores: StoreResult[] = data.stores || [];
-          finalStores = mergeStoreResults(cache.storeResults, newStores);
-          // Recalculate MCE key from merged totals (basket changed)
+          finalStores = mergeStoreResults(freshCache.storeResults, newStores);
           finalMceKey = finalStores.length > 0
             ? finalStores.reduce((a, b) => a.fuel_adjusted_total <= b.fuel_adjusted_total ? a : b).store_key
             : null;
         }
       } else {
-        // Full fetch — cache invalid or missing
-        clearCache();
+        // Full fetch — cache invalid, missing, or radius increased
         const res = await fetch('/api/compare', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1285,13 +1306,13 @@ export default function ComparePage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'שגיאה');
         finalStores = data.stores || [];
-        // Use API's authoritative MCE key
         finalMceKey = data.most_cost_effective_key ?? null;
       }
 
-      // Save updated cache (including MCE key so re-runs without changes preserve it)
+      // Save updated cache
       saveCache({
         timestamp: Date.now(),
+        radiusKm: radius,
         baseItems: items.map(it => ({ item_code: it.item_code, group_label: it.group_label, quantity: it.quantity })),
         storeResults: finalStores,
         mostCostEffectiveKey: finalMceKey,

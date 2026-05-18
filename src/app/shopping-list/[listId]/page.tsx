@@ -856,39 +856,45 @@ function SwipeRow({
     </div>
   );
 
+  // Compute tint progress (0→1) for each direction
+  const rightProgress = translateX > 0 ? Math.min(translateX / ACTION_WIDTH, 1) : 0;
+  const leftProgress = translateX < 0 ? Math.min(-translateX / ACTION_WIDTH, 1) : 0;
+
   return (
     <div className="relative" style={{ borderRadius: 16 }}>
       {/* Inner clip wrapper — clips action panels + sliding content, but NOT the trash button */}
       <div style={{ borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
-        {/* LEFT action panel — revealed when swiping RIGHT (content slides right, exposes left) */}
+        {/* LEFT action panel — full width, revealed when swiping RIGHT */}
         <div
           style={{
-            position: 'absolute', top: 0, left: 0, bottom: 0,
-            width: ACTION_WIDTH,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(45,122,45,0.85)',
-            opacity: translateX > 0 ? Math.min(translateX / ACTION_WIDTH, 1) : 0,
+            position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+            paddingLeft: 20,
+            background: `rgba(45,122,45,${0.75 + rightProgress * 0.2})`,
+            opacity: rightProgress,
             pointerEvents: 'none',
+            transition: isDragging ? 'none' : 'opacity 0.2s ease',
           }}
         >
-          <Check size={24} color="white" />
+          <Check size={28} color="white" strokeWidth={3} />
         </div>
 
-        {/* RIGHT action panel — revealed when swiping LEFT (content slides left, exposes right) */}
+        {/* RIGHT action panel — full width, revealed when swiping LEFT */}
         <div
           style={{
-            position: 'absolute', top: 0, right: 0, bottom: 0,
-            width: ACTION_WIDTH,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(191,44,44,0.85)',
-            opacity: translateX < 0 ? Math.min(-translateX / ACTION_WIDTH, 1) : 0,
+            position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            paddingRight: 20,
+            background: `rgba(191,44,44,${0.75 + leftProgress * 0.2})`,
+            opacity: leftProgress,
             pointerEvents: 'none',
+            transition: isDragging ? 'none' : 'opacity 0.2s ease',
           }}
         >
-          <Trash2 size={24} color="white" />
+          <Trash2 size={28} color="white" strokeWidth={2.5} />
         </div>
 
-        {/* MAIN content — slides with touch */}
+        {/* MAIN content — slides with touch, tinted during drag */}
         <div
           style={{
             transform: `translateX(${translateX}px)`,
@@ -896,6 +902,12 @@ function SwipeRow({
             borderRadius: 16,
             position: 'relative',
             zIndex: 1,
+            // Color tint overlay via box-shadow inset
+            boxShadow: rightProgress > 0
+              ? `inset 0 0 0 9999px rgba(45,122,45,${rightProgress * 0.18})`
+              : leftProgress > 0
+              ? `inset 0 0 0 9999px rgba(191,44,44,${leftProgress * 0.18})`
+              : 'none',
           }}
         >
           {rowContent}

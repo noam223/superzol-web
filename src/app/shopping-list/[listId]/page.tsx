@@ -656,35 +656,47 @@ function SwipeRow({
   const isDraggingRef = useRef(false);
   const [animState, setAnimState] = useState<RowAnimState>('idle');
   const [rowHeight, setRowHeight] = useState<number | 'auto'>('auto');
+  const [flyRect, setFlyRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const [particleRect, setParticleRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
 
   const THRESHOLD = ACTION_WIDTH * 0.45;
 
-  // Trigger check animation then call onToggle after
+  // Trigger check animation: capture position → show fixed flying clone → collapse original → onToggle
   const triggerCheck = useCallback(() => {
     if (animState !== 'idle') return;
-    // Capture current height for collapse
-    if (rowRef.current) setRowHeight(rowRef.current.offsetHeight);
+    if (rowRef.current) {
+      const rect = rowRef.current.getBoundingClientRect();
+      setFlyRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+      setRowHeight(rect.height);
+    }
     setAnimState('checking');
+    // After fly animation completes, collapse and fire onToggle
     setTimeout(() => {
+      setFlyRect(null);
       setAnimState('collapsing');
       setTimeout(() => {
         onToggle();
-      }, 180);
-    }, 220);
+      }, 160);
+    }, 420);
   }, [animState, onToggle]);
 
-  // Trigger delete animation then call onDelete after
+  // Trigger delete animation: particle scatter then collapse
   const triggerDelete = useCallback(() => {
     if (animState !== 'idle') return;
-    if (rowRef.current) setRowHeight(rowRef.current.offsetHeight);
+    if (rowRef.current) {
+      const rect = rowRef.current.getBoundingClientRect();
+      setParticleRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+      setRowHeight(rect.height);
+    }
     setAnimState('deleting');
     setTimeout(() => {
+      setParticleRect(null);
       setAnimState('collapsing');
       setTimeout(() => {
         onDelete();
-      }, 180);
-    }, 260);
+      }, 160);
+    }, 500);
   }, [animState, onDelete]);
 
   const resetPosition = useCallback(() => {
@@ -891,31 +903,133 @@ function SwipeRow({
 
   // Outer wrapper animation styles
   const wrapperStyle: React.CSSProperties = (() => {
+    // When checking: immediately hide the original row (the fixed clone does the flying)
     if (animState === 'checking') return {
-      transform: 'translateY(50px)',
-      opacity: 0,
-      transition: 'transform 220ms cubic-bezier(0.4,0,0.2,1), opacity 220ms ease',
-      overflow: 'hidden',
       height: rowHeight !== 'auto' ? rowHeight : undefined,
+      overflow: 'hidden',
+      opacity: 0,
+      pointerEvents: 'none',
     };
     if (animState === 'deleting') return {
-      opacity: 0,
-      transform: 'scale(0.95)',
-      transition: 'opacity 260ms ease, transform 260ms ease',
-      overflow: 'hidden',
       height: rowHeight !== 'auto' ? rowHeight : undefined,
+      overflow: 'hidden',
+      opacity: 0,
+      pointerEvents: 'none',
     };
     if (animState === 'collapsing') return {
       height: 0,
       opacity: 0,
       marginBottom: 0,
       overflow: 'hidden',
-      transition: 'height 180ms ease, opacity 80ms ease',
+      transition: 'height 160ms ease',
     };
     return { borderRadius: 16 };
   })();
 
   return (
+    <>
+    {/* Fixed flying clone — only during check animation */}
+    {flyRect && (
+      <div
+        style={{
+          position: 'fixed',
+          top: flyRect.top,
+          left: flyRect.left,
+          width: flyRect.width,
+          height: flyRect.height,
+          zIndex: 9999,
+          pointerEvents: 'none',
+          borderRadius: 16,
+          overflow: 'hidden',
+          animation: 'rowFlyDown 420ms cubic-bezier(0.4,0,0.8,1) forwards',
+        }}
+      >
+        {/* Snapshot of the row content */}
+        <div style={{
+          background: 'rgba(255,255,255,0.92)',
+          borderRadius: 16,
+          width: '100%',
+          height: '100%',
+          boxShadow: '0 8px 32px rgba(45,122,45,0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          paddingRight: 16,
+          gap: 12,
+        }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: 12,
+            background: '#f5f0eb', overflow: 'hidden',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <RowImage itemCode={item.item_code} name={item.item_name} groupId={item.group_id} />
+          </div>
+          <p style={{
+            fontFamily: 'Heebo, sans-serif', fontWeight: 700, fontSize: 14,
+            color: '#3a342c', flex: 1, overflow: 'hidden',
+            display: '-webkit-box', WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+          }}>{item.item_name}</p>
+          <div style={{
+            width: 28, height: 28, borderRadius: '50%',
+            background: '#2d7a2d', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Check size={14} color="white" strokeWidth={3} />
+          </div>
+        </div>
+      </div>
+    )}
+    {/* Particle dissolve overlay — only during delete animation */}
+    {particleRect && (() => {
+      const COLS = 7;
+      const ROWS = 3;
+      const pw = particleRect.width / COLS;
+      const ph = particleRect.height / ROWS;
+      const particles: React.ReactNode[] = [];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const cx = (c / (COLS - 1) - 0.5) * 2;
+          const cy = (r / (ROWS - 1) - 0.5) * 2;
+          const dist = 60 + Math.random() * 80;
+          const tx = cx * dist + (Math.random() - 0.5) * 40;
+          const ty = cy * dist + (Math.random() - 0.5) * 40;
+          const rot = (Math.random() - 0.5) * 180;
+          const delay = Math.random() * 80;
+          particles.push(
+            <div
+              key={`${r}-${c}`}
+              style={{
+                position: 'absolute',
+                left: c * pw,
+                top: r * ph,
+                width: pw + 1,
+                height: ph + 1,
+                background: 'rgba(191,44,44,0.82)',
+                borderRadius: 4,
+                ['--tx' as string]: `${tx}px`,
+                ['--ty' as string]: `${ty}px`,
+                ['--rot' as string]: `${rot}deg`,
+                animation: `particleScatter 500ms cubic-bezier(0.4,0,0.8,1) ${delay}ms forwards`,
+              }}
+            />
+          );
+        }
+      }
+      return (
+        <div style={{
+          position: 'fixed',
+          top: particleRect.top,
+          left: particleRect.left,
+          width: particleRect.width,
+          height: particleRect.height,
+          zIndex: 9999,
+          pointerEvents: 'none',
+          borderRadius: 16,
+          overflow: 'visible',
+        }}>
+          {particles}
+        </div>
+      );
+    })()}
     <div ref={rowRef} className="relative" style={wrapperStyle}>
       {/* Inner clip wrapper — clips action panels + sliding content, but NOT the trash button */}
       <div style={{ borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
@@ -995,6 +1109,7 @@ function SwipeRow({
         </button>
       )}
     </div>
+    </>
   );
 }
 

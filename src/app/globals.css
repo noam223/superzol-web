@@ -173,6 +173,22 @@ body {
     width: 130px;
     flex-shrink: 0;
   }
+  
+  /* ─── Shopping list row animations ───────────────────────── */
+  
+  /* Flying card: slides down and fades out */
+  @keyframes rowFlyDown {
+    0%   { transform: translateY(0) scale(1);    opacity: 1; }
+    30%  { transform: translateY(20px) scale(1.02); opacity: 0.9; }
+    100% { transform: translateY(420px) scale(0.9); opacity: 0; }
+  }
+  
+  /* Particle scatter: each particle uses --tx/--ty/--rot CSS vars */
+  @keyframes particleScatter {
+    0%   { transform: translate(0, 0) rotate(0deg) scale(1);   opacity: 1; }
+    60%  { opacity: 0.7; }
+    100% { transform: translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(0.2); opacity: 0; }
+  }
 
   /* Smaller promo card */
   .product-card-promo {

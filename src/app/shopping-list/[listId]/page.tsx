@@ -864,12 +864,12 @@ function SwipeRow({
     <div className="relative" style={{ borderRadius: 16 }}>
       {/* Inner clip wrapper — clips action panels + sliding content, but NOT the trash button */}
       <div style={{ borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
-        {/* LEFT panel — revealed when swiping RIGHT; icon 16px from right edge */}
+        {/* GREEN panel — swiping RIGHT exposes the LEFT side; icon 16px from LEFT edge */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            paddingRight: 16,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+            paddingLeft: 16,
             background: `linear-gradient(to right,
               rgba(22,101,52,1) 0%,
               rgba(34,139,34,0.92) 30%,
@@ -883,12 +883,12 @@ function SwipeRow({
           <Check size={26} color="white" strokeWidth={3} />
         </div>
 
-        {/* RIGHT panel — revealed when swiping LEFT; icon 16px from left edge */}
+        {/* RED panel — swiping LEFT exposes the RIGHT side; icon 16px from RIGHT edge */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
-            paddingLeft: 16,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            paddingRight: 16,
             background: `linear-gradient(to left,
               rgba(153,27,27,1) 0%,
               rgba(220,38,38,0.92) 30%,

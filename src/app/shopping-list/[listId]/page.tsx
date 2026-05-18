@@ -864,12 +864,10 @@ function SwipeRow({
     <div className="relative" style={{ borderRadius: 16 }}>
       {/* Inner clip wrapper — clips action panels + sliding content, but NOT the trash button */}
       <div style={{ borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
-        {/* GREEN panel — swiping RIGHT exposes the LEFT side; icon 16px from LEFT edge */}
+        {/* GREEN panel — swiping RIGHT exposes the LEFT side; icon physically at left: 16px */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
-            paddingLeft: 16,
             background: `linear-gradient(to right,
               rgba(22,101,52,1) 0%,
               rgba(34,139,34,0.92) 30%,
@@ -880,15 +878,15 @@ function SwipeRow({
             transition: isDragging ? 'none' : 'opacity 0.2s ease',
           }}
         >
-          <Check size={26} color="white" strokeWidth={3} />
+          <div style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
+            <Check size={26} color="white" strokeWidth={3} />
+          </div>
         </div>
 
-        {/* RED panel — swiping LEFT exposes the RIGHT side; icon 16px from RIGHT edge */}
+        {/* RED panel — swiping LEFT exposes the RIGHT side; icon physically at right: 16px */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            paddingRight: 16,
             background: `linear-gradient(to left,
               rgba(153,27,27,1) 0%,
               rgba(220,38,38,0.92) 30%,
@@ -899,7 +897,9 @@ function SwipeRow({
             transition: isDragging ? 'none' : 'opacity 0.2s ease',
           }}
         >
-          <Trash2 size={26} color="white" strokeWidth={2.5} />
+          <div style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', display: 'flex' }}>
+            <Trash2 size={26} color="white" strokeWidth={2.5} />
+          </div>
         </div>
 
         {/* MAIN content — slides with touch, tinted during drag */}

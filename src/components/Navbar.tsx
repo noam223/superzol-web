@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 
 const NAV_ITEMS = [
-  { href: '/history',       label: 'היסטוריה',        icon: '/icons/history.png'  },
+  { href: '/promotions',    label: 'מבצעים',           icon: '/icons/fire_small.png' },
   { href: '/compare',       label: 'השוואת מחירים',   icon: '/icons/compare.png'  },
   { href: '/shopping-list', label: '',                 icon: '/icons/cart.png', isCenter: true },
   { href: '/search',        label: 'חיפוש',            icon: '/icons/search.png'   },

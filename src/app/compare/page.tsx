@@ -980,6 +980,7 @@ type CompareCache = {
   timestamp: number;
   baseItems: CacheBaseItem[];
   storeResults: StoreResult[];
+  mostCostEffectiveKey: string | null;
 };
 
 function loadCache(): CompareCache | null {
@@ -1254,11 +1255,11 @@ export default function ComparePage() {
 
       if (cacheUsable && cache) {
         if (newItems.length === 0) {
-          // Nothing new — use cache directly
+          // Nothing new — use cache directly, preserve original MCE key
           finalStores = cache.storeResults;
-          finalMceKey = null; // recalculate below
+          finalMceKey = cache.mostCostEffectiveKey;
         } else {
-          // Fetch only new items
+          // Fetch only new items, merge with cache
           const res = await fetch('/api/compare', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1268,7 +1269,10 @@ export default function ComparePage() {
           if (!res.ok) throw new Error(data.error || 'שגיאה');
           const newStores: StoreResult[] = data.stores || [];
           finalStores = mergeStoreResults(cache.storeResults, newStores);
-          finalMceKey = null; // recalculate below
+          // Recalculate MCE key from merged totals (basket changed)
+          finalMceKey = finalStores.length > 0
+            ? finalStores.reduce((a, b) => a.fuel_adjusted_total <= b.fuel_adjusted_total ? a : b).store_key
+            : null;
         }
       } else {
         // Full fetch — cache invalid or missing
@@ -1281,22 +1285,16 @@ export default function ComparePage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'שגיאה');
         finalStores = data.stores || [];
+        // Use API's authoritative MCE key
         finalMceKey = data.most_cost_effective_key ?? null;
       }
 
-      // Recalculate most_cost_effective_key from finalStores if not set
-      if (!finalMceKey && finalStores.length > 0) {
-        const best = finalStores.reduce((a, b) =>
-          a.fuel_adjusted_total <= b.fuel_adjusted_total ? a : b
-        );
-        finalMceKey = best.store_key;
-      }
-
-      // Save updated cache
+      // Save updated cache (including MCE key so re-runs without changes preserve it)
       saveCache({
         timestamp: Date.now(),
         baseItems: items.map(it => ({ item_code: it.item_code, group_label: it.group_label, quantity: it.quantity })),
         storeResults: finalStores,
+        mostCostEffectiveKey: finalMceKey,
       });
 
       setStores(finalStores);

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Square, X, MapPin, ArrowRight } from 'lucide-react';
+import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Square, X, MapPin, ArrowRight, Pencil } from 'lucide-react';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { getChainLogoUrl } from '@/lib/chainLogos';
 import { getUserLocation } from '@/lib/location';
@@ -54,7 +54,7 @@ type NearbyStore = {
   total_price: number;
 };
 
-async function fetchProductIndex(itemCode: string): Promise<{ min_price?: number; max_price?: number } | null> {
+async function fetchProductIndex(itemCode: string): Promise<{ min_price?: number; max_price?: number; unit_qty?: string; quantity?: number; unit_of_measure?: string } | null> {
   if (!itemCode || itemCode === 'group') return null;
   try {
     const params = new URLSearchParams({ collection: PRODUCTS_INDEX, doc_id: itemCode });
@@ -62,6 +62,18 @@ async function fetchProductIndex(itemCode: string): Promise<{ min_price?: number
     if (res.ok) return await res.json();
   } catch { /* skip */ }
   return null;
+}
+
+// Module-level cache for unit info per item_code
+const _unitInfoCache: Record<string, string | null> = {};
+
+async function getUnitInfo(itemCode: string): Promise<string | null> {
+  if (!itemCode || itemCode === 'group') return null;
+  if (itemCode in _unitInfoCache) return _unitInfoCache[itemCode];
+  const p = await fetchProductIndex(itemCode);
+  const info = p ? formatUnitInfo(p) : null;
+  _unitInfoCache[itemCode] = info;
+  return info;
 }
 
 async function fetchNearbyPrices(itemCode: string, itemName: string, lat: number, lng: number): Promise<NearbyStore[]> {
@@ -172,6 +184,26 @@ function ProductImage({ itemCode, name, size = 52 }: { itemCode: string; name: s
       src={src} alt={name} onError={handleError}
       style={{ width: size, height: size, objectFit: 'contain', borderRadius: 12, flexShrink: 0, background: '#f8f4f0' }}
     />
+  );
+}
+
+// ── Row image + unit badge ────────────────────────────────────────────────────
+function UnitBadge({ itemCode }: { itemCode: string }) {
+  const [unit, setUnit] = useState<string | null>(null);
+  useEffect(() => {
+    getUnitInfo(itemCode).then(setUnit);
+  }, [itemCode]);
+  if (!unit) return null;
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 700, color: '#6b6259',
+      background: 'rgba(182,171,156,0.28)', borderRadius: 4,
+      padding: '1px 4px', maxWidth: 56, whiteSpace: 'nowrap',
+      overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.4,
+      display: 'block', textAlign: 'center',
+    }}>
+      {unit}
+    </span>
   );
 }
 
@@ -595,8 +627,6 @@ function SwipeRow({
   onDelete,
   onUpdateQty,
   onToggleSelect,
-  onPressStart,
-  onPressEnd,
   onTap,
   outOfRange,
   isScrollingRef,
@@ -608,8 +638,6 @@ function SwipeRow({
   onDelete: () => void;
   onUpdateQty: (qty: number) => void;
   onToggleSelect: () => void;
-  onPressStart: () => void;
-  onPressEnd: () => void;
   onTap: () => void;
   outOfRange?: boolean;
   isScrollingRef: React.RefObject<boolean>;
@@ -618,7 +646,6 @@ function SwipeRow({
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
   const directionRef = useRef<'h' | 'v' | null>(null);
-  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didMoveRef = useRef(false);
   const tapOnTextRef = useRef(false); // true only when touch started on the text/center area
   const [translateX, setTranslateX] = useState(0);
@@ -632,7 +659,7 @@ function SwipeRow({
     actionFiredRef.current = false;
   }, []);
 
-  // Long-press + swipe detection
+  // Swipe detection (no long-press)
   const handleTouchStart = (e: React.TouchEvent, fromTextArea = false) => {
     if (isScrollingRef.current) return;
     touchStartXRef.current = e.touches[0].clientX;
@@ -642,9 +669,6 @@ function SwipeRow({
     isDraggingRef.current = false;
     setIsDragging(false);
     tapOnTextRef.current = fromTextArea;
-    pressTimerRef.current = setTimeout(() => {
-      onPressStart();
-    }, LONG_PRESS_MS);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -658,8 +682,6 @@ function SwipeRow({
 
     if (adx > 5 || dy > 5) {
       didMoveRef.current = true;
-      if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
-      onPressEnd();
     }
 
     if (directionRef.current === 'h') {
@@ -674,9 +696,6 @@ function SwipeRow({
   };
 
   const handleTouchEnd = () => {
-    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
-    onPressEnd();
-
     if (isDraggingRef.current) {
       // Decide action based on how far swiped
       if (translateX > THRESHOLD) {
@@ -748,17 +767,18 @@ function SwipeRow({
         )}
       </div>
 
-      {/* ── PRODUCT IMAGE ── stops touch propagation so tapping image doesn't open sheet ── */}
+      {/* ── PRODUCT IMAGE + unit badge ── */}
       <div
-        className="shrink-0 my-2"
-        style={{
-          width: 56, height: 56, borderRadius: 12,
-          background: '#f5f0eb', overflow: 'hidden',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
+        className="shrink-0 my-2 flex flex-col items-center gap-0.5"
+        style={{ width: 56 }}
         onTouchStart={e => e.stopPropagation()}
       >
-        <RowImage itemCode={item.item_code} name={item.item_name} groupId={item.group_id} />
+        <div style={{ width: 56, height: 56, borderRadius: 12, background: '#f5f0eb', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <RowImage itemCode={item.item_code} name={item.item_name} groupId={item.group_id} />
+        </div>
+        {item.item_code && item.item_code !== 'group' && (
+          <UnitBadge itemCode={item.item_code} />
+        )}
       </div>
 
       {/* ── CENTER: name + subtitle — tap/click here opens BottomSheet ── */}
@@ -1218,20 +1238,6 @@ export default function ShoppingListDetailPage() {
     exitMultiSelect();
   };
 
-  const handlePressStart = (id: string) => {
-    const timer = setTimeout(() => {
-      pressTimers.current.delete(id);
-      setMultiSelect(true);
-      setSelectedIds(new Set([id]));
-    }, LONG_PRESS_MS);
-    pressTimers.current.set(id, timer);
-  };
-
-  const handlePressEnd = (id: string) => {
-    const timer = pressTimers.current.get(id);
-    if (timer) { clearTimeout(timer); pressTimers.current.delete(id); }
-  };
-
   const unchecked = items.filter(i => !i.checked);
   const checked = items.filter(i => i.checked);
 
@@ -1320,6 +1326,20 @@ export default function ShoppingListDetailPage() {
                 <Trash2 size={13} />מחק
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Edit mode button — shown below search bar when not in multi-select */}
+        {!isStoreList && !multiSelect && items.length > 0 && (
+          <div className="flex justify-end mb-2">
+            <button
+              onClick={() => setMultiSelect(true)}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-medium"
+              style={{ background: 'rgba(182,171,156,0.25)', color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}
+            >
+              <Pencil size={12} />
+              עריכה
+            </button>
           </div>
         )}
 
@@ -1440,8 +1460,6 @@ export default function ShoppingListDetailPage() {
                     onDelete={() => deleteItem(item.id)}
                     onUpdateQty={(qty) => updateQuantity(item.id, qty)}
                     onToggleSelect={() => toggleSelect(item.id)}
-                    onPressStart={() => handlePressStart(item.id)}
-                    onPressEnd={() => handlePressEnd(item.id)}
                     onTap={() => item.group_id ? setSelectedGroup(item) : setSelectedItem(item)}
                     outOfRange={outOfRangeIds.has(item.id)}
                     isScrollingRef={isScrollingRef}
@@ -1467,8 +1485,6 @@ export default function ShoppingListDetailPage() {
                     onDelete={() => deleteItem(item.id)}
                     onUpdateQty={(qty) => updateQuantity(item.id, qty)}
                     onToggleSelect={() => toggleSelect(item.id)}
-                    onPressStart={() => handlePressStart(item.id)}
-                    onPressEnd={() => handlePressEnd(item.id)}
                     onTap={() => item.group_id ? setSelectedGroup(item) : setSelectedItem(item)}
                     outOfRange={outOfRangeIds.has(item.id)}
                     isScrollingRef={isScrollingRef}
@@ -1480,7 +1496,7 @@ export default function ShoppingListDetailPage() {
             {/* Swipe hint */}
             {!multiSelect && items.length > 0 && (
               <p className="text-center text-xs mt-4" style={{ color: '#B6AB9C', fontFamily: 'Heebo, sans-serif' }}>
-                החלק ימינה לסימון · החלק שמאלה למחיקה · לחיצה ממושכת לבחירה מרובה
+                החלק ימינה לסימון · החלק שמאלה למחיקה
               </p>
             )}
           </>

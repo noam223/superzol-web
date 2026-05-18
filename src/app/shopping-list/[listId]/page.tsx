@@ -619,6 +619,9 @@ function ProductSheet({ item, onClose }: { item: ListItem; onClose: () => void }
 // Swipe right → check/toggle | Swipe left → delete
 const ACTION_WIDTH = 80; // px — width of each action panel
 
+// Animation states for SwipeRow exit animations
+type RowAnimState = 'idle' | 'checking' | 'deleting' | 'collapsing';
+
 function SwipeRow({
   item,
   multiSelect,
@@ -647,14 +650,44 @@ function SwipeRow({
   const touchStartYRef = useRef(0);
   const directionRef = useRef<'h' | 'v' | null>(null);
   const didMoveRef = useRef(false);
-  const tapOnTextRef = useRef(false); // true only when touch started on the text/center area
+  const tapOnTextRef = useRef(false);
   const [translateX, setTranslateX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
+  const [animState, setAnimState] = useState<RowAnimState>('idle');
+  const [rowHeight, setRowHeight] = useState<number | 'auto'>('auto');
+  const rowRef = useRef<HTMLDivElement>(null);
 
   const THRESHOLD = ACTION_WIDTH * 0.45;
 
-  const resetPosition = useCallback((animate = true) => {
+  // Trigger check animation then call onToggle after
+  const triggerCheck = useCallback(() => {
+    if (animState !== 'idle') return;
+    // Capture current height for collapse
+    if (rowRef.current) setRowHeight(rowRef.current.offsetHeight);
+    setAnimState('checking');
+    setTimeout(() => {
+      setAnimState('collapsing');
+      setTimeout(() => {
+        onToggle();
+      }, 180);
+    }, 220);
+  }, [animState, onToggle]);
+
+  // Trigger delete animation then call onDelete after
+  const triggerDelete = useCallback(() => {
+    if (animState !== 'idle') return;
+    if (rowRef.current) setRowHeight(rowRef.current.offsetHeight);
+    setAnimState('deleting');
+    setTimeout(() => {
+      setAnimState('collapsing');
+      setTimeout(() => {
+        onDelete();
+      }, 180);
+    }, 260);
+  }, [animState, onDelete]);
+
+  const resetPosition = useCallback(() => {
     setTranslateX(0);
     actionFiredRef.current = false;
   }, []);
@@ -689,7 +722,6 @@ function SwipeRow({
         isDraggingRef.current = true;
         setIsDragging(true);
       }
-      // Clamp: max ACTION_WIDTH in each direction, with resistance beyond threshold
       const clamped = Math.max(-ACTION_WIDTH * 1.2, Math.min(ACTION_WIDTH * 1.2, dx));
       setTranslateX(clamped);
     }
@@ -697,21 +729,18 @@ function SwipeRow({
 
   const handleTouchEnd = () => {
     if (isDraggingRef.current) {
-      // Decide action based on how far swiped
       if (translateX > THRESHOLD) {
-        // Swiped right → check/toggle (RTL: right = check)
         if (!actionFiredRef.current) {
           actionFiredRef.current = true;
-          onToggle();
+          resetPosition();
+          triggerCheck();
         }
-        resetPosition();
       } else if (translateX < -THRESHOLD) {
-        // Swiped left → delete (RTL: left = delete)
         if (!actionFiredRef.current) {
           actionFiredRef.current = true;
-          onDelete();
+          resetPosition();
+          triggerDelete();
         }
-        resetPosition();
       } else {
         resetPosition();
       }
@@ -752,7 +781,7 @@ function SwipeRow({
           </button>
         ) : (
           <button
-            onClick={e => { e.stopPropagation(); onToggle(); }}
+            onClick={e => { e.stopPropagation(); triggerCheck(); }}
             onTouchStart={e => { e.stopPropagation(); }}
             className="flex items-center justify-center transition-all"
             style={{
@@ -860,8 +889,34 @@ function SwipeRow({
   const rightProgress = translateX > 0 ? Math.min(translateX / ACTION_WIDTH, 1) : 0;
   const leftProgress = translateX < 0 ? Math.min(-translateX / ACTION_WIDTH, 1) : 0;
 
+  // Outer wrapper animation styles
+  const wrapperStyle: React.CSSProperties = (() => {
+    if (animState === 'checking') return {
+      transform: 'translateY(50px)',
+      opacity: 0,
+      transition: 'transform 220ms cubic-bezier(0.4,0,0.2,1), opacity 220ms ease',
+      overflow: 'hidden',
+      height: rowHeight !== 'auto' ? rowHeight : undefined,
+    };
+    if (animState === 'deleting') return {
+      opacity: 0,
+      transform: 'scale(0.95)',
+      transition: 'opacity 260ms ease, transform 260ms ease',
+      overflow: 'hidden',
+      height: rowHeight !== 'auto' ? rowHeight : undefined,
+    };
+    if (animState === 'collapsing') return {
+      height: 0,
+      opacity: 0,
+      marginBottom: 0,
+      overflow: 'hidden',
+      transition: 'height 180ms ease, opacity 80ms ease',
+    };
+    return { borderRadius: 16 };
+  })();
+
   return (
-    <div className="relative" style={{ borderRadius: 16 }}>
+    <div ref={rowRef} className="relative" style={wrapperStyle}>
       {/* Inner clip wrapper — clips action panels + sliding content, but NOT the trash button */}
       <div style={{ borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
         {/* GREEN panel — swiping RIGHT exposes the LEFT side; icon physically at left: 16px */}
@@ -925,7 +980,7 @@ function SwipeRow({
       {/* ── TRASH button: absolute circle on top-left corner — outside clip wrapper so it floats ── */}
       {!multiSelect && (
         <button
-          onClick={e => { e.stopPropagation(); onDelete(); }}
+          onClick={e => { e.stopPropagation(); triggerDelete(); }}
           className="absolute flex items-center justify-center z-10"
           style={{
             top: 0, left: 0,

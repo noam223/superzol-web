@@ -292,6 +292,70 @@ async function getFreshCandidateCodes(groupLabel: string): Promise<string[]> {
   return [];
 }
 
+type ChainProduceHit = {
+  item_code: string;
+  item_name: string;
+  item_price: number;
+  store_id: string;
+  unit_price?: number;
+  promo_price?: number;
+  promo_min_qty?: number;
+  promo_max_qty?: number;
+  reward_type?: number;
+  b_is_weighted?: boolean;
+  promotion_description?: string;
+};
+
+/**
+ * For produce items that have no barcode (PLU codes / empty item_code) in some chains,
+ * search the chain collection directly by name and store_id.
+ * Returns a map of storeId → best matching hit.
+ *
+ * This handles chains like Rami Levy, Yohananof, Dabbah where avocado/produce
+ * items are sold by weight with internal PLU codes that don't appear in products_index.
+ */
+async function getFreshProduceByName(
+  collection: string,
+  groupLabel: string,
+  storeIds: string[],
+): Promise<Map<string, ChainProduceHit>> {
+  const result = new Map<string, ChainProduceHit>();
+  if (storeIds.length === 0) return result;
+
+  // Search by name in this chain collection, filtered to our stores
+  // Use a broad per_page since we need results for all stores
+  const storeFilter = storeIds.map(sid => `\`${sid}\``).join(',');
+  try {
+    const data = await tsSearch(collection, {
+      q: groupLabel,
+      query_by: 'item_name',
+      filter_by: `store_id:[${storeFilter}]`,
+      per_page: String(Math.min(storeIds.length * 5, 250)),
+      sort_by: '_text_match:desc',
+    });
+    if (!data?.hits?.length) return result;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const hit of data.hits as any[]) {
+      const doc = hit.document as ChainProduceHit;
+      if (!doc.item_price || doc.item_price <= 0) continue;
+
+      // Only accept items whose name starts with the group label (exact produce match)
+      const name = (doc.item_name || '').trim();
+      if (!name.startsWith(groupLabel)) continue;
+
+      const sid = String(doc.store_id);
+      // Keep the best (lowest price) hit per store
+      const existing = result.get(sid);
+      if (!existing || doc.item_price < existing.item_price) {
+        result.set(sid, doc);
+      }
+    }
+  } catch { /* collection may not exist */ }
+
+  return result;
+}
+
 /**
  * POST /api/compare
  * Body: { lat, lng, radius_km, items: [{item_code, item_name, quantity, candidate_codes?, group_label?, is_fresh_product?}] }
@@ -415,8 +479,18 @@ export async function POST(request: NextRequest) {
               codesToCheck = [item.item_code];
             }
 
-            if (codesToCheck.length === 0) {
-              // Mark all stores as missing this item
+            // For fresh produce: also search by name in this chain collection.
+            // Many chains (Rami Levy, Yohananof, Dabbah) sell produce with empty/PLU
+            // item codes that never appear in products_index, so code-based lookup fails.
+            // We do a name search per chain as a fallback/supplement.
+            let produceByNameMap: Map<string, ChainProduceHit> | null = null;
+            if (item.is_fresh_product) {
+              const label = item.group_label || item.item_name;
+              produceByNameMap = await getFreshProduceByName(collection, label, allSids);
+            }
+
+            // If no codes AND no name results → mark all stores missing
+            if (codesToCheck.length === 0 && (!produceByNameMap || produceByNameMap.size === 0)) {
               for (const store of stores) {
                 const storeKey = `${chainId}-${storeIdVariants(store.store_id)[0]}`;
                 const sr = storeResultMap.get(storeKey);
@@ -440,16 +514,17 @@ export async function POST(request: NextRequest) {
               return;
             }
 
-            // Build all doc IDs: chainId-storeId-itemCode for all sids × all codes
-            const docIds: string[] = [];
-            for (const sid of allSids) {
-              for (const code of codesToCheck) {
-                docIds.push(`${chainId}-${sid}-${code}`);
+            // Batch fetch by code (if any codes to check)
+            let priceMap = new Map<string, DocData>();
+            if (codesToCheck.length > 0) {
+              const docIds: string[] = [];
+              for (const sid of allSids) {
+                for (const code of codesToCheck) {
+                  docIds.push(`${chainId}-${sid}-${code}`);
+                }
               }
+              priceMap = await tsBatchGetDocs(collection, docIds);
             }
-
-            // Batch fetch all at once (one Typesense query per item per chain)
-            const priceMap = await tsBatchGetDocs(collection, docIds);
 
             // For each store, find the best price among all codes and variants.
             // For weight-based items (b_is_weighted=true): compare by unit_price (price/100g).
@@ -472,13 +547,13 @@ export async function POST(request: NextRequest) {
               let bestPromoMaxQty: number | null = null;
               let bestCompareValue: number | null = null; // unit_price or item_price
 
+              // Check code-based results
               for (const sid of variants) {
                 for (const code of codesToCheck) {
                   const docId = `${chainId}-${sid}-${code}`;
                   const doc = priceMap.get(docId);
                   if (!doc || doc.item_price <= 0) continue;
 
-                  // For weight-based items: compare by unit_price if available
                   const isWeightBased = doc.b_is_weighted === true;
                   const compareValue = (isWeightBased && doc.unit_price && doc.unit_price > 0)
                     ? doc.unit_price
@@ -500,6 +575,38 @@ export async function POST(request: NextRequest) {
                       doc.reward_type,
                       item.quantity,
                       doc.promo_max_qty,
+                    );
+                  }
+                }
+              }
+
+              // Also check name-based results (for PLU/empty-code produce items)
+              if (produceByNameMap) {
+                for (const sid of variants) {
+                  const hit = produceByNameMap.get(sid);
+                  if (!hit || hit.item_price <= 0) continue;
+
+                  const isWeightBased = hit.b_is_weighted === true;
+                  const compareValue = (isWeightBased && hit.unit_price && hit.unit_price > 0)
+                    ? hit.unit_price
+                    : hit.item_price;
+
+                  if (bestCompareValue === null || compareValue < bestCompareValue) {
+                    bestCompareValue = compareValue;
+                    bestPrice = hit.item_price;
+                    bestCode = hit.item_code || 'group';
+                    bestName = hit.item_name;
+                    bestUnitPrice = hit.unit_price ?? null;
+                    bestPromoDesc = hit.promotion_description ?? null;
+                    bestPromoMinQty = hit.promo_min_qty ?? null;
+                    bestPromoMaxQty = hit.promo_max_qty ?? null;
+                    bestEffectivePrice = calcEffectivePrice(
+                      hit.item_price,
+                      hit.promo_price,
+                      hit.promo_min_qty,
+                      hit.reward_type,
+                      item.quantity,
+                      hit.promo_max_qty,
                     );
                   }
                 }

@@ -1529,27 +1529,29 @@ export default function ComparePage() {
     const repKey = groupLabel ? `group:${groupLabel}` : oldCode;
     replacementsRef.current.set(repKey, { oldCode, groupLabel, newItem });
 
-    // Persist replacement to Supabase shopping_list_items
-    const userId = userIdRef.current;
-    if (userId) {
-      await supabase
-        .from('shopping_list_items')
-        .update({ item_code: newItem.item_code, item_name: newItem.item_name })
-        .eq('user_id', userId)
-        .eq('item_code', oldCode);
-    }
+    // NOTE: We intentionally do NOT update Supabase shopping_list_items here.
+    // A replacement in Compare is a temporary substitution for this comparison session only.
+    // Persisting it would corrupt the original shopping list (especially for group items
+    // where all items share item_code='group' and a bulk update would overwrite all of them).
 
-    // Update currentItems so re-compare uses the new item code
+    // Update currentItems so re-compare uses the new item code.
+    // For group items (oldCode === 'group'), match by group_label to avoid
+    // updating ALL group items (they all share item_code='group').
+    const itemMatches = (i: ListItem) =>
+      groupLabel
+        ? i.group_label === groupLabel
+        : i.item_code === oldCode;
+
     const updatedCurrentItems = currentItems.map(i =>
-      i.item_code === oldCode
-        ? { ...i, item_code: newItem.item_code, item_name: newItem.item_name }
+      itemMatches(i)
+        ? { ...i, item_code: newItem.item_code, item_name: newItem.item_name, group_label: undefined }
         : i
     );
     setCurrentItems(updatedCurrentItems);
     setListItems(prev =>
       prev.map(i =>
-        i.item_code === oldCode
-          ? { ...i, item_code: newItem.item_code, item_name: newItem.item_name }
+        itemMatches(i)
+          ? { ...i, item_code: newItem.item_code, item_name: newItem.item_name, group_label: undefined }
           : i
       )
     );
@@ -1707,6 +1709,25 @@ export default function ComparePage() {
                     {radiusKm} ק&quot;מ
                   </span>
                 </div>
+                {/* Preset distance buttons */}
+                <div className="flex gap-2 mb-2 flex-wrap" dir="rtl">
+                  {[3, 5, 10, 20].map(km => (
+                    <button
+                      key={km}
+                      onClick={() => { setRadiusKm(km); if (location) runCompare(currentItems, location, km); }}
+                      disabled={comparing}
+                      className="text-xs px-3 py-1 rounded-lg font-medium"
+                      style={{
+                        background: radiusKm === km ? '#BF2C2C' : 'rgba(79,72,63,0.12)',
+                        color: radiusKm === km ? 'white' : '#4F483F',
+                        border: radiusKm === km ? 'none' : '1px solid rgba(79,72,63,0.2)',
+                        opacity: comparing ? 0.7 : 1,
+                      }}
+                    >
+                      {km} ק&quot;מ
+                    </button>
+                  ))}
+                </div>
                 <input
                   type="range"
                   min={1}
@@ -1714,12 +1735,18 @@ export default function ComparePage() {
                   step={1}
                   value={radiusKm}
                   onChange={e => {
-                    const r = Number(e.target.value);
-                    setRadiusKm(r);
-                    setCompared(false);
+                    // Only update display — do NOT call setCompared(false) here,
+                    // as that would trigger the auto-compare useEffect on every drag step.
+                    setRadiusKm(Number(e.target.value));
                   }}
-                  onMouseUp={e => { const r = Number((e.target as HTMLInputElement).value); if (location) runCompare(currentItems, location, r); }}
-                  onTouchEnd={e => { const r = Number((e.target as HTMLInputElement).value); if (location) runCompare(currentItems, location, r); }}
+                  onMouseUp={e => {
+                    const r = Number((e.target as HTMLInputElement).value);
+                    if (location) { setCompared(false); runCompare(currentItems, location, r); }
+                  }}
+                  onTouchEnd={e => {
+                    const r = Number((e.target as HTMLInputElement).value);
+                    if (location) { setCompared(false); runCompare(currentItems, location, r); }
+                  }}
                   className="w-full"
                   style={{ accentColor: '#BF2C2C', height: 4, cursor: 'pointer' }}
                   disabled={comparing}
@@ -1730,7 +1757,7 @@ export default function ComparePage() {
                 </div>
                 <div className="flex justify-end mt-2">
                   <button
-                    onClick={() => runCompare(currentItems, location, radiusKm)}
+                    onClick={() => { setCompared(false); runCompare(currentItems, location, radiusKm); }}
                     disabled={comparing}
                     className="text-xs px-3 py-1.5 rounded-xl font-medium flex items-center gap-1"
                     style={{ background: '#BF2C2C', color: 'white', opacity: comparing ? 0.7 : 1 }}

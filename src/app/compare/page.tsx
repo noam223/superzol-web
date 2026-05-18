@@ -970,6 +970,69 @@ function LocationStep({ onLocate }: { onLocate: (lat: number, lng: number, label
 // ─── Session persistence key ──────────────────────────────────────────────────
 const COMPARE_SESSION_KEY = 'superzol_compare_session';
 
+// ─── Incremental fetch cache ──────────────────────────────────────────────────
+const COMPARE_CACHE_KEY = 'superzol_compare_cache';
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+type CacheBaseItem = { item_code: string; group_label?: string; quantity: number };
+
+type CompareCache = {
+  timestamp: number;
+  baseItems: CacheBaseItem[];
+  storeResults: StoreResult[];
+};
+
+function loadCache(): CompareCache | null {
+  try {
+    const raw = sessionStorage.getItem(COMPARE_CACHE_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw) as CompareCache;
+    if (Date.now() - c.timestamp > CACHE_TTL_MS) {
+      sessionStorage.removeItem(COMPARE_CACHE_KEY);
+      return null;
+    }
+    return c;
+  } catch { return null; }
+}
+
+function saveCache(data: CompareCache) {
+  try { sessionStorage.setItem(COMPARE_CACHE_KEY, JSON.stringify(data)); } catch { /* ignore */ }
+}
+
+function clearCache() {
+  try { sessionStorage.removeItem(COMPARE_CACHE_KEY); } catch { /* ignore */ }
+}
+
+/** Unique key for a ListItem — used to match items across cache and current basket */
+function itemKey(item: { item_code: string; group_label?: string }): string {
+  return item.item_code === 'group' ? `group:${item.group_label ?? ''}` : item.item_code;
+}
+
+/**
+ * Merge new API results (for newItems only) into cached store results.
+ * For each store in newResults, find the matching store in cachedStores by store_key
+ * and append the new items + update totals. Stores not in newResults are left unchanged.
+ */
+function mergeStoreResults(cachedStores: StoreResult[], newResults: StoreResult[]): StoreResult[] {
+  const newByKey = new Map<string, StoreResult>(newResults.map(s => [s.store_key, s]));
+
+  return cachedStores.map(cached => {
+    const incoming = newByKey.get(cached.store_key);
+    if (!incoming) return cached; // store not in new results — keep as-is
+
+    const mergedItems = [...cached.items, ...incoming.items];
+    return {
+      ...cached,
+      items: mergedItems,
+      products_found: cached.products_found + incoming.products_found,
+      products_missing: cached.products_missing + incoming.products_missing,
+      total_price: cached.total_price + incoming.total_price,
+      effective_total: cached.effective_total + incoming.effective_total,
+      fuel_adjusted_total: cached.fuel_adjusted_total + incoming.fuel_adjusted_total,
+    };
+  });
+}
+
 type CompareSession = {
   stores: StoreResult[];
   mostCostEffectiveKey: string | null;
@@ -1147,23 +1210,103 @@ export default function ComparePage() {
     setCompareError('');
     setStores([]);
     setMostCostEffectiveKey(null);
+
     try {
-      const res = await fetch('/api/compare', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius_km: radius, items }),
+      // ── Incremental fetch logic ──────────────────────────────────────────────
+      const cache = loadCache();
+
+      // Build a map of current items by key → quantity
+      const currentMap = new Map<string, { item: ListItem; qty: number }>(
+        items.map(it => [itemKey(it), { item: it, qty: it.quantity }])
+      );
+
+      let finalStores: StoreResult[];
+      let finalMceKey: string | null;
+
+      // Determine if cache is usable:
+      // - cache must exist
+      // - no item removed or quantity changed (only additions allowed for incremental)
+      let cacheUsable = false;
+      let newItems: ListItem[] = [];
+
+      if (cache) {
+        const baseMap = new Map<string, CacheBaseItem>(
+          cache.baseItems.map(bi => [itemKey(bi), bi])
+        );
+
+        // Check for removals or quantity changes
+        let hasRemovedOrChanged = false;
+        for (const bi of cache.baseItems) {
+          const key = itemKey(bi);
+          const current = currentMap.get(key);
+          if (!current || current.qty !== bi.quantity) {
+            hasRemovedOrChanged = true;
+            break;
+          }
+        }
+
+        if (!hasRemovedOrChanged) {
+          // Find truly new items (not in cache baseItems)
+          newItems = items.filter(it => !baseMap.has(itemKey(it)));
+          cacheUsable = true;
+        }
+      }
+
+      if (cacheUsable && cache) {
+        if (newItems.length === 0) {
+          // Nothing new — use cache directly
+          finalStores = cache.storeResults;
+          finalMceKey = null; // recalculate below
+        } else {
+          // Fetch only new items
+          const res = await fetch('/api/compare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius_km: radius, items: newItems }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'שגיאה');
+          const newStores: StoreResult[] = data.stores || [];
+          finalStores = mergeStoreResults(cache.storeResults, newStores);
+          finalMceKey = null; // recalculate below
+        }
+      } else {
+        // Full fetch — cache invalid or missing
+        clearCache();
+        const res = await fetch('/api/compare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat: loc.lat, lng: loc.lng, radius_km: radius, items }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'שגיאה');
+        finalStores = data.stores || [];
+        finalMceKey = data.most_cost_effective_key ?? null;
+      }
+
+      // Recalculate most_cost_effective_key from finalStores if not set
+      if (!finalMceKey && finalStores.length > 0) {
+        const best = finalStores.reduce((a, b) =>
+          a.fuel_adjusted_total <= b.fuel_adjusted_total ? a : b
+        );
+        finalMceKey = best.store_key;
+      }
+
+      // Save updated cache
+      saveCache({
+        timestamp: Date.now(),
+        baseItems: items.map(it => ({ item_code: it.item_code, group_label: it.group_label, quantity: it.quantity })),
+        storeResults: finalStores,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'שגיאה');
-      const newStores: StoreResult[] = data.stores || [];
-      const newMceKey: string | null = data.most_cost_effective_key ?? null;
-      setStores(newStores);
-      setMostCostEffectiveKey(newMceKey);
+
+      setStores(finalStores);
+      setMostCostEffectiveKey(finalMceKey);
       setCompared(true);
+
       // Persist session so navigation away and back restores results
       saveSession({
-        stores: newStores,
-        mostCostEffectiveKey: newMceKey,
+        stores: finalStores,
+        mostCostEffectiveKey: finalMceKey,
         location: loc,
         radiusKm: radius,
         currentItems: items,
@@ -1191,6 +1334,7 @@ export default function ComparePage() {
 
   const handleLocate = (lat: number, lng: number, label: string) => {
     clearSession(); // new location = fresh compare
+    clearCache();   // new location = cache invalid
     const loc = { lat, lng, label };
     setLocation(loc);
     setCompared(false);

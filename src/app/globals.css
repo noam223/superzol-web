@@ -176,11 +176,18 @@ body {
   
   /* ─── Shopping list row animations ───────────────────────── */
   
-  /* Flying card: slides down and fades out */
+  /* Flying card: slides down and fades out (check → goes to checked section below) */
   @keyframes rowFlyDown {
     0%   { transform: translateY(0) scale(1);    opacity: 1; }
     30%  { transform: translateY(20px) scale(1.02); opacity: 0.9; }
     100% { transform: translateY(420px) scale(0.9); opacity: 0; }
+  }
+  
+  /* Flying card: slides up and fades out (uncheck → goes back to unchecked section above) */
+  @keyframes rowFlyUp {
+    0%   { transform: translateY(0) scale(1);    opacity: 1; }
+    30%  { transform: translateY(-20px) scale(1.02); opacity: 0.9; }
+    100% { transform: translateY(-420px) scale(0.9); opacity: 0; }
   }
   
   /* Particle scatter: each particle uses --tx/--ty/--rot CSS vars */

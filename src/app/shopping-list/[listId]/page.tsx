@@ -656,22 +656,22 @@ function SwipeRow({
   const isDraggingRef = useRef(false);
   const [animState, setAnimState] = useState<RowAnimState>('idle');
   const [rowHeight, setRowHeight] = useState<number | 'auto'>('auto');
-  const [flyRect, setFlyRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const [flyRect, setFlyRect] = useState<{ top: number; left: number; width: number; height: number; up: boolean } | null>(null);
   const [particleRect, setParticleRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
 
   const THRESHOLD = ACTION_WIDTH * 0.45;
 
   // Trigger check animation: capture position → show fixed flying clone → collapse original → onToggle
+  // If item is currently checked, it's being unchecked → fly UP; otherwise fly DOWN
   const triggerCheck = useCallback(() => {
     if (animState !== 'idle') return;
     if (rowRef.current) {
       const rect = rowRef.current.getBoundingClientRect();
-      setFlyRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+      setFlyRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height, up: item.checked });
       setRowHeight(rect.height);
     }
     setAnimState('checking');
-    // After fly animation completes, collapse and fire onToggle
     setTimeout(() => {
       setFlyRect(null);
       setAnimState('collapsing');
@@ -679,7 +679,7 @@ function SwipeRow({
         onToggle();
       }, 160);
     }, 420);
-  }, [animState, onToggle]);
+  }, [animState, onToggle, item.checked]);
 
   // Trigger delete animation: particle scatter then collapse
   const triggerDelete = useCallback(() => {
@@ -941,7 +941,7 @@ function SwipeRow({
           pointerEvents: 'none',
           borderRadius: 16,
           overflow: 'hidden',
-          animation: 'rowFlyDown 420ms cubic-bezier(0.4,0,0.8,1) forwards',
+          animation: `${flyRect.up ? 'rowFlyUp' : 'rowFlyDown'} 420ms cubic-bezier(0.4,0,0.8,1) forwards`,
         }}
       >
         {/* Snapshot of the row content */}

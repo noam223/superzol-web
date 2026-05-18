@@ -1270,40 +1270,16 @@ export default function ShoppingListDetailPage() {
               {isStoreList ? storeName : isNamedList ? namedListName : 'רשימת קניות שלי'}
             </h1>
           </div>
-          {!isStoreList && !multiSelect && (
-            <div className="flex items-center gap-2">
-              {checked.length > 0 && (
-                <button
-                  onClick={clearChecked}
-                  className="text-xs flex items-center gap-1 px-3 py-1.5 rounded-xl"
-                  style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', fontFamily: 'Heebo, sans-serif' }}
-                >
-                  <Trash2 size={12} />
-                  מחק מסומנים ({checked.length})
-                </button>
-              )}
-              {items.length > 0 && (
-                <button
-                  onClick={async () => {
-                    if (!confirm('למחוק את כל המוצרים מהרשימה?')) return;
-                    if (isNamedList) {
-                      saveNamedListItems(namedListId, []);
-                      setItems([]);
-                      toast.success('הרשימה נוקתה');
-                    } else if (user) {
-                      const { error } = await supabase.from('shopping_list_items').delete().eq('user_id', user.id);
-                      if (!error) { setItems([]); toast.success('הרשימה נוקתה'); }
-                      else toast.error('שגיאה במחיקה');
-                    }
-                  }}
-                  className="text-xs flex items-center gap-1 px-3 py-1.5 rounded-xl"
-                  style={{ background: 'rgba(191,44,44,0.08)', color: '#BF2C2C', fontFamily: 'Heebo, sans-serif', border: '1px solid rgba(191,44,44,0.2)' }}
-                >
-                  <Trash2 size={12} />
-                  נקה רשימה
-                </button>
-              )}
-            </div>
+          {/* "מחק מסומנים" stays in header only when there are checked items */}
+          {!isStoreList && !multiSelect && checked.length > 0 && (
+            <button
+              onClick={clearChecked}
+              className="text-xs flex items-center gap-1 px-3 py-1.5 rounded-xl"
+              style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', fontFamily: 'Heebo, sans-serif' }}
+            >
+              <Trash2 size={12} />
+              מחק מסומנים ({checked.length})
+            </button>
           )}
         </div>
 
@@ -1329,9 +1305,9 @@ export default function ShoppingListDetailPage() {
           </div>
         )}
 
-        {/* Edit mode button — shown below search bar when not in multi-select */}
+        {/* Action bar: עריכה + נקה רשימה — right side (RTL = justify-start), below search */}
         {!isStoreList && !multiSelect && items.length > 0 && (
-          <div className="flex justify-end mb-2">
+          <div className="flex justify-start gap-2 mb-2">
             <button
               onClick={() => setMultiSelect(true)}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-medium"
@@ -1339,6 +1315,25 @@ export default function ShoppingListDetailPage() {
             >
               <Pencil size={12} />
               עריכה
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirm('למחוק את כל המוצרים מהרשימה?')) return;
+                if (isNamedList) {
+                  saveNamedListItems(namedListId, []);
+                  setItems([]);
+                  toast.success('הרשימה נוקתה');
+                } else if (user) {
+                  const { error } = await supabase.from('shopping_list_items').delete().eq('user_id', user.id);
+                  if (!error) { setItems([]); toast.success('הרשימה נוקתה'); }
+                  else toast.error('שגיאה במחיקה');
+                }
+              }}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-medium"
+              style={{ background: 'rgba(191,44,44,0.08)', color: '#BF2C2C', fontFamily: 'Heebo, sans-serif', border: '1px solid rgba(191,44,44,0.2)' }}
+            >
+              <Trash2 size={12} />
+              נקה רשימה
             </button>
           </div>
         )}

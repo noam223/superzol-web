@@ -83,6 +83,8 @@ type PromoSuggestion = {
 
 function ProductImg({ itemCode, name, size = 40 }: { itemCode: string; name: string; size?: number }) {
   const [src, setSrc] = useState(getProductImageUrl(itemCode));
+  // Reset image when itemCode changes (e.g. after a product replacement)
+  useEffect(() => { setSrc(getProductImageUrl(itemCode)); }, [itemCode]);
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -1035,6 +1037,13 @@ function mergeStoreResults(cachedStores: StoreResult[], newResults: StoreResult[
   });
 }
 
+/** A single user-made replacement: oldCode/groupLabel → new item */
+type ReplacementEntry = {
+  oldCode: string;          // original item_code (or 'group' for group items)
+  groupLabel?: string;      // set when replacing a group item
+  newItem: ListItem;        // the substitute chosen by the user
+};
+
 type CompareSession = {
   stores: StoreResult[];
   mostCostEffectiveKey: string | null;
@@ -1043,6 +1052,7 @@ type CompareSession = {
   currentItems: ListItem[];
   promoFulfilled: boolean;
   originalItems: ListItem[];
+  replacements?: ReplacementEntry[];
 };
 
 function saveSession(data: CompareSession) {
@@ -1074,6 +1084,8 @@ export default function ComparePage() {
   const [currentItems, setCurrentItems] = useState<ListItem[]>([]);
   const [promoFulfilled, setPromoFulfilled] = useState(false);
   const originalItemsRef = useRef<ListItem[]>([]); // snapshot of quantities before promo fulfillment
+  /** Tracks all user-made replacements so they survive recalculate */
+  const replacementsRef = useRef<Map<string, ReplacementEntry>>(new Map());
   const resultsRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
   const sessionRestoredRef = useRef(false); // prevent auto-compare from firing before session restore
@@ -1124,6 +1136,15 @@ export default function ComparePage() {
       setCurrentItems(session.currentItems);
       setPromoFulfilled(session.promoFulfilled);
       originalItemsRef.current = session.originalItems;
+      // Restore replacements map
+      if (session.replacements?.length) {
+        const map = new Map<string, ReplacementEntry>();
+        for (const r of session.replacements) {
+          const key = r.groupLabel ? `group:${r.groupLabel}` : r.oldCode;
+          map.set(key, r);
+        }
+        replacementsRef.current = map;
+      }
       setCompared(true);
       sessionRestoredRef.current = true;
     }
@@ -1318,19 +1339,83 @@ export default function ComparePage() {
         mostCostEffectiveKey: finalMceKey,
       });
 
-      setStores(finalStores);
+      // ── Re-apply user replacements ───────────────────────────────────────────
+      // After a fresh fetch, re-apply any replacements the user made previously
+      // so they are not lost on recalculate.
+      const pendingReplacements = Array.from(replacementsRef.current.values());
+      let displayStores = finalStores;
+      if (pendingReplacements.length > 0) {
+        const reapplied = await Promise.all(
+          finalStores.map(async (s) => {
+            let current = s;
+            for (const rep of pendingReplacements) {
+              // Check if this store has the old item (missing or found)
+              const existingItem = rep.groupLabel
+                ? current.items.find(i => i.group_label === rep.groupLabel)
+                : current.items.find(i => i.item_code === rep.oldCode);
+              if (!existingItem) continue;
+
+              // Look up the substitute price in this store
+              const price = await checkItemInStore(s.chain_id, s.store_id, rep.newItem.item_code);
+              if (price === null) continue; // substitute not available here
+
+              // Apply the replacement
+              const updatedItems = current.items.map(item => {
+                const isMatch = rep.groupLabel
+                  ? item.group_label === rep.groupLabel
+                  : item.item_code === rep.oldCode;
+                if (!isMatch) return item;
+                return {
+                  ...item,
+                  item_code: rep.newItem.item_code,
+                  item_name: rep.newItem.item_name,
+                  resolved_item_code: rep.newItem.item_code,
+                  group_label: undefined,
+                  found: true,
+                  price,
+                  total: price * item.quantity,
+                  effective_price: null,
+                  promotion_description: null,
+                };
+              });
+              const foundCount = updatedItems.filter(i => i.found).length;
+              const total = updatedItems.reduce((sum, i) => sum + (i.total || 0), 0);
+              const effectiveTotal = updatedItems.reduce((sum, i) => {
+                if (!i.found) return sum;
+                const ep = i.effective_price != null && i.effective_price < (i.price ?? Infinity)
+                  ? i.effective_price : i.price ?? 0;
+                return sum + ep * i.quantity;
+              }, 0);
+              current = {
+                ...current,
+                items: updatedItems,
+                products_found: foundCount,
+                products_missing: updatedItems.length - foundCount,
+                total_price: total,
+                effective_total: effectiveTotal,
+                fuel_adjusted_total: effectiveTotal + s.distance_km * 2 * (8 / 15),
+              };
+            }
+            return current;
+          })
+        );
+        displayStores = reapplied;
+      }
+
+      setStores(displayStores);
       setMostCostEffectiveKey(finalMceKey);
       setCompared(true);
 
       // Persist session so navigation away and back restores results
       saveSession({
-        stores: finalStores,
+        stores: displayStores,
         mostCostEffectiveKey: finalMceKey,
         location: loc,
         radiusKm: radius,
         currentItems: items,
         promoFulfilled: promoFulfilledState,
         originalItems,
+        replacements: Array.from(replacementsRef.current.values()),
       });
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } catch (e) {
@@ -1354,6 +1439,7 @@ export default function ComparePage() {
   const handleLocate = (lat: number, lng: number, label: string) => {
     clearSession(); // new location = fresh compare
     clearCache();   // new location = cache invalid
+    replacementsRef.current.clear(); // new location = replacements no longer valid
     const loc = { lat, lng, label };
     setLocation(loc);
     setCompared(false);
@@ -1439,6 +1525,10 @@ export default function ComparePage() {
     });
     setStores(sortedStores);
 
+    // ── Record this replacement so it survives recalculate ──
+    const repKey = groupLabel ? `group:${groupLabel}` : oldCode;
+    replacementsRef.current.set(repKey, { oldCode, groupLabel, newItem });
+
     // Persist replacement to Supabase shopping_list_items
     const userId = userIdRef.current;
     if (userId) {
@@ -1464,7 +1554,7 @@ export default function ComparePage() {
       )
     );
 
-    // Persist updated session
+    // Persist updated session (including replacements map)
     if (location) {
       saveSession({
         stores: sortedStores,
@@ -1474,6 +1564,7 @@ export default function ComparePage() {
         currentItems: updatedCurrentItems,
         promoFulfilled,
         originalItems: originalItemsRef.current,
+        replacements: Array.from(replacementsRef.current.values()),
       });
     }
   }, [stores, currentItems, location, radiusKm, mostCostEffectiveKey, promoFulfilled]);
@@ -1607,35 +1698,49 @@ export default function ComparePage() {
               </div>
             )}
 
-            {/* Radius selector */}
+            {/* Radius slider */}
             {location && (
-              <div className="rounded-2xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap" style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.4)' }}>
-                <span className="text-sm" style={{ color: '#4F483F' }}>רדיוס חיפוש:</span>
-                {[5, 10, 15, 25].map(r => (
-                  <button
-                    key={r}
-                    onClick={() => { setRadiusKm(r); setCompared(false); }}
-                    className="text-xs px-3 py-1.5 rounded-xl font-medium"
-                    style={{
-                      background: radiusKm === r ? '#4F483F' : 'rgba(255,255,255,0.5)',
-                      color: radiusKm === r ? 'white' : '#4F483F',
-                      border: '1px solid rgba(182,171,156,0.4)',
-                    }}
-                  >
-                    {r} ק&quot;מ
-                  </button>
-                ))}
-                <button
-                  onClick={() => runCompare(currentItems, location, radiusKm)}
+              <div className="rounded-2xl px-4 py-3 mb-4" style={{ background: 'rgba(233,216,197,0.85)', border: '1.5px solid rgba(182,171,156,0.4)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium" style={{ color: '#4F483F' }}>רדיוס חיפוש</span>
+                  <span className="text-sm font-bold px-2 py-0.5 rounded-lg" style={{ background: '#4F483F', color: 'white', minWidth: 52, textAlign: 'center' }}>
+                    {radiusKm} ק&quot;מ
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={30}
+                  step={1}
+                  value={radiusKm}
+                  onChange={e => {
+                    const r = Number(e.target.value);
+                    setRadiusKm(r);
+                    setCompared(false);
+                  }}
+                  onMouseUp={e => { const r = Number((e.target as HTMLInputElement).value); if (location) runCompare(currentItems, location, r); }}
+                  onTouchEnd={e => { const r = Number((e.target as HTMLInputElement).value); if (location) runCompare(currentItems, location, r); }}
+                  className="w-full"
+                  style={{ accentColor: '#BF2C2C', height: 4, cursor: 'pointer' }}
                   disabled={comparing}
-                  className="mr-auto text-xs px-3 py-1.5 rounded-xl font-medium flex items-center gap-1"
-                  style={{ background: '#BF2C2C', color: 'white', opacity: comparing ? 0.7 : 1 }}
-                >
-                  {comparing
-                    ? <div className="animate-spin w-3 h-3 border-2 rounded-full" style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: 'white' }} />
-                    : <RefreshCw size={13} />}
-                  {comparing ? 'מחשב...' : 'חשב מחדש'}
-                </button>
+                />
+                <div className="flex justify-between mt-1">
+                  <span className="text-xs" style={{ color: '#8a7f75' }}>1 ק&quot;מ</span>
+                  <span className="text-xs" style={{ color: '#8a7f75' }}>30 ק&quot;מ</span>
+                </div>
+                <div className="flex justify-end mt-2">
+                  <button
+                    onClick={() => runCompare(currentItems, location, radiusKm)}
+                    disabled={comparing}
+                    className="text-xs px-3 py-1.5 rounded-xl font-medium flex items-center gap-1"
+                    style={{ background: '#BF2C2C', color: 'white', opacity: comparing ? 0.7 : 1 }}
+                  >
+                    {comparing
+                      ? <div className="animate-spin w-3 h-3 border-2 rounded-full" style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: 'white' }} />
+                      : <RefreshCw size={13} />}
+                    {comparing ? 'מחשב...' : 'חשב מחדש'}
+                  </button>
+                </div>
               </div>
             )}
 

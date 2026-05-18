@@ -62,6 +62,11 @@ type Tab = 'groups' | 'products' | 'featured';
 function ProductThumb({ itemCode, name, unitInfo }: { itemCode: string; name: string; unitInfo?: string | null }) {
   const [src, setSrc] = useState(() => getProductImageUrl(itemCode));
   const [failed, setFailed] = useState(false);
+  // Reset image when itemCode changes (e.g. after setGroupImage)
+  useEffect(() => {
+    setSrc(getProductImageUrl(itemCode));
+    setFailed(false);
+  }, [itemCode]);
   const img = failed ? (
     <div style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, background: 'linear-gradient(135deg,#f0e8e0,#e8ddd5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🛒</div>
   ) : (

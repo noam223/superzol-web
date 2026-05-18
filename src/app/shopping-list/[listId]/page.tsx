@@ -864,13 +864,13 @@ function SwipeRow({
     <div className="relative" style={{ borderRadius: 16 }}>
       {/* Inner clip wrapper — clips action panels + sliding content, but NOT the trash button */}
       <div style={{ borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
-        {/* LEFT action panel — full width, revealed when swiping RIGHT */}
+        {/* LEFT panel — revealed when swiping RIGHT; icon on right edge (closest to sliding content) */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
-            paddingLeft: 20,
-            background: `rgba(45,122,45,${0.75 + rightProgress * 0.2})`,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            paddingRight: 20,
+            background: `linear-gradient(to right, rgba(45,122,45,0.95) 0%, rgba(45,122,45,0.6) 60%, rgba(45,122,45,0) 100%)`,
             opacity: rightProgress,
             pointerEvents: 'none',
             transition: isDragging ? 'none' : 'opacity 0.2s ease',
@@ -879,13 +879,13 @@ function SwipeRow({
           <Check size={28} color="white" strokeWidth={3} />
         </div>
 
-        {/* RIGHT action panel — full width, revealed when swiping LEFT */}
+        {/* RIGHT panel — revealed when swiping LEFT; icon on left edge (closest to sliding content) */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            paddingRight: 20,
-            background: `rgba(191,44,44,${0.75 + leftProgress * 0.2})`,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+            paddingLeft: 20,
+            background: `linear-gradient(to left, rgba(191,44,44,0.95) 0%, rgba(191,44,44,0.6) 60%, rgba(191,44,44,0) 100%)`,
             opacity: leftProgress,
             pointerEvents: 'none',
             transition: isDragging ? 'none' : 'opacity 0.2s ease',

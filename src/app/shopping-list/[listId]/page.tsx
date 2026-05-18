@@ -864,12 +864,12 @@ function SwipeRow({
     <div className="relative" style={{ borderRadius: 16 }}>
       {/* Inner clip wrapper — clips action panels + sliding content, but NOT the trash button */}
       <div style={{ borderRadius: 16, overflow: 'hidden', position: 'relative' }}>
-        {/* LEFT panel — revealed when swiping RIGHT */}
-        {/* Gradient: rich green on left fading to transparent on right; icon ~25% from right */}
+        {/* LEFT panel — revealed when swiping RIGHT; icon 8px from right edge */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center',
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            paddingRight: 8,
             background: `linear-gradient(to right,
               rgba(22,101,52,1) 0%,
               rgba(34,139,34,0.92) 30%,
@@ -880,25 +880,22 @@ function SwipeRow({
             transition: isDragging ? 'none' : 'opacity 0.2s ease',
           }}
         >
-          {/* Icon sits ~25% from the right edge */}
-          <div style={{ position: 'absolute', right: '22%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.22)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-            }}>
-              <Check size={26} color="white" strokeWidth={3} />
-            </div>
+          <div style={{
+            width: 44, height: 44, borderRadius: '50%',
+            background: 'rgba(255,255,255,0.22)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}>
+            <Check size={26} color="white" strokeWidth={3} />
           </div>
         </div>
 
-        {/* RIGHT panel — revealed when swiping LEFT */}
-        {/* Gradient: rich red on right fading to transparent on left; icon ~25% from left */}
+        {/* RIGHT panel — revealed when swiping LEFT; icon 8px from left edge */}
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0, right: 0,
-            display: 'flex', alignItems: 'center',
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+            paddingLeft: 8,
             background: `linear-gradient(to left,
               rgba(153,27,27,1) 0%,
               rgba(220,38,38,0.92) 30%,
@@ -909,16 +906,13 @@ function SwipeRow({
             transition: isDragging ? 'none' : 'opacity 0.2s ease',
           }}
         >
-          {/* Icon sits ~25% from the left edge */}
-          <div style={{ position: 'absolute', left: '22%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.22)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-            }}>
-              <Trash2 size={26} color="white" strokeWidth={2.5} />
-            </div>
+          <div style={{
+            width: 44, height: 44, borderRadius: '50%',
+            background: 'rgba(255,255,255,0.22)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}>
+            <Trash2 size={26} color="white" strokeWidth={2.5} />
           </div>
         </div>
 

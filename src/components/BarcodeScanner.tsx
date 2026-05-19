@@ -44,6 +44,32 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
     onScan(code);
   }, [onScan]);
 
+  // ── Pick the best back camera (avoid telephoto on multi-camera Android) ──
+  const getBestCameraId = useCallback(async (): Promise<string | null> => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      // On Android, cameras are listed: front, wide, main, tele (order varies by OEM)
+      // We want the one labeled "back" or "environment" but NOT "telephoto"
+      // Heuristic: pick the last back-facing camera that isn't labeled telephoto/tele
+      const backCameras = videoDevices.filter(d => {
+        const label = d.label.toLowerCase();
+        return label.includes('back') || label.includes('rear') || label.includes('environment') || label.includes('0,');
+      });
+      // Exclude telephoto
+      const nonTele = backCameras.filter(d => {
+        const label = d.label.toLowerCase();
+        return !label.includes('tele') && !label.includes('zoom') && !label.includes('2x') && !label.includes('3x');
+      });
+      const candidates = nonTele.length > 0 ? nonTele : backCameras;
+      // Prefer "wide" or "main" if labeled
+      const wide = candidates.find(d => d.label.toLowerCase().includes('wide') || d.label.toLowerCase().includes('main'));
+      return wide?.deviceId || candidates[0]?.deviceId || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   // ── Mode 1: Live stream via html5-qrcode ──────────────────────────────────
   const startStream = useCallback(async () => {
     try {
@@ -53,16 +79,23 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
       const html5QrCode = new Html5Qrcode(SCANNER_ID, { verbose: false });
       scannerRef.current = html5QrCode;
 
+      // Try to pick the best (non-telephoto) back camera
+      const bestCameraId = await getBestCameraId();
+
+      const cameraConstraint = bestCameraId
+        ? { deviceId: { exact: bestCameraId } }
+        : { facingMode: { exact: 'environment' } };
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (html5QrCode as any).start(
-        { facingMode: { exact: 'environment' } },
+        cameraConstraint,
         {
           fps: 15,
           qrbox: { width: 280, height: 160 },
           aspectRatio: 1.777,
           disableFlip: false,
           videoConstraints: {
-            facingMode: { exact: 'environment' },
+            ...(bestCameraId ? { deviceId: { exact: bestCameraId } } : { facingMode: { exact: 'environment' } }),
             width: { ideal: 1280 },
             height: { ideal: 720 },
           },
@@ -74,16 +107,21 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
 
       if (mountedRef.current) setReady(true);
 
-      // Reset zoom to 1x after stream starts
+      // After stream starts: reset zoom to 1x and apply continuous autofocus
       setTimeout(async () => {
         if (!mountedRef.current) return;
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const videoEl = document.querySelector(`#${SCANNER_ID} video`) as any;
-          const stream: MediaStream = videoEl?.srcObject;
+          const videoEl = document.querySelector(`#${SCANNER_ID} video`) as HTMLVideoElement & { srcObject: MediaStream };
+          const stream = videoEl?.srcObject;
           const vt = stream?.getVideoTracks?.()?.[0];
           if (vt) {
-            try { await (vt as any).applyConstraints({ advanced: [{ zoom: 1 }] }); } catch { /* ignore */ }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const caps = (vt as any).getCapabilities?.() as Record<string, unknown> | undefined;
+            if (caps?.zoom) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const zoomMin = (caps.zoom as any).min ?? 1;
+              try { await (vt as any).applyConstraints({ advanced: [{ zoom: zoomMin }] }); } catch { /* ignore */ }
+            }
             try { await (vt as any).applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch { /* ignore */ }
           }
         } catch { /* ignore */ }
@@ -97,7 +135,7 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
         setReady(true);
       }
     }
-  }, [handleScan]);
+  }, [handleScan, getBestCameraId]);
 
   const stopStream = useCallback(async () => {
     if (scannerRef.current) {

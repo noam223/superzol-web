@@ -60,11 +60,21 @@ export async function middleware(request: NextRequest) {
   );
 
   // This refreshes the session if expired — important for SSR
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  // Debug: log auth state on every protected request
+  console.log('[middleware]', {
+    pathname,
+    hasUser: !!user,
+    userId: user?.id ?? null,
+    authError: authError?.message ?? null,
+    cookieNames: request.cookies.getAll().map(c => c.name),
+  });
 
   if (!user) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('next', pathname);
+    console.log('[middleware] no user → redirect to', loginUrl.toString());
     return NextResponse.redirect(loginUrl);
   }
 

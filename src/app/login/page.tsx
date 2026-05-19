@@ -38,7 +38,8 @@ function LoginForm() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success('התחברת בהצלחה!');
-        router.push(nextPath);
+        // Use full page navigation so the server middleware sees the new session cookies
+        window.location.href = nextPath;
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'שגיאה בהתחברות';

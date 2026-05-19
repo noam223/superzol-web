@@ -171,16 +171,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Skip login */}
-        <div className="text-center mt-4">
-          <a
-            href="/"
-            className="text-sm hover:opacity-70 transition-opacity"
-            style={{ color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}
-          >
-            המשך ללא התחברות
-          </a>
-        </div>
       </div>
     </div>
   );

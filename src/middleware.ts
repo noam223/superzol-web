@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const PUBLIC_PATHS = [
   '/login',
   '/auth/callback',
-  '/shopping-list/join', // shared list join page (future)
+  '/shopping-list/join', // shared list join page
 ];
 
 // Static assets and API routes that should pass through
@@ -30,7 +30,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const response = NextResponse.next({
+  // Create a response to potentially modify cookies on
+  let response = NextResponse.next({
     request: { headers: request.headers },
   });
 
@@ -43,9 +44,13 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+          // Refresh session cookies on both request and response
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
+          response = NextResponse.next({
+            request: { headers: request.headers },
+          });
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
           );
@@ -54,11 +59,11 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // This refreshes the session if expired — important for SSR
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
     const loginUrl = new URL('/login', request.url);
-    // Preserve the original URL to redirect back after login
     loginUrl.searchParams.set('next', pathname);
     return NextResponse.redirect(loginUrl);
   }

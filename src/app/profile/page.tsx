@@ -6,12 +6,13 @@ import { User, LogOut, ShoppingCart, Search, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import Image from 'next/image';
 
 const ADMIN_EMAIL = 'noamnisim@gmail.com';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [user, setUser] = useState<{ email?: string; id: string } | null>(null);
+  const [user, setUser] = useState<{ email?: string; id: string; user_metadata?: { avatar_url?: string; full_name?: string; name?: string } } | null>(null);
   const [listCount, setListCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const isAdmin = user?.email === ADMIN_EMAIL;
@@ -61,15 +62,31 @@ export default function ProfilePage() {
           className="rounded-3xl p-6 mb-5 text-center"
           style={{ background: 'rgba(233, 216, 197, 0.85)', border: '1.5px solid rgba(182, 171, 156, 0.5)', backdropFilter: 'blur(8px)' }}
         >
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3"
-            style={{ background: 'rgba(191, 44, 44, 0.12)' }}
-          >
-            <User size={32} style={{ color: '#BF2C2C' }} />
+          <div className="flex justify-center mb-3">
+            {user?.user_metadata?.avatar_url ? (
+              <Image
+                src={user.user_metadata.avatar_url}
+                alt="תמונת פרופיל"
+                width={64}
+                height={64}
+                className="rounded-full"
+                style={{ border: '2px solid rgba(182, 171, 156, 0.5)' }}
+              />
+            ) : (
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(191, 44, 44, 0.12)' }}
+              >
+                <User size={32} style={{ color: '#BF2C2C' }} />
+              </div>
+            )}
           </div>
           <h1 className="text-lg font-bold mb-1" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
-            {user?.email}
+            {user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email}
           </h1>
+          {(user?.user_metadata?.full_name || user?.user_metadata?.name) && (
+            <p className="text-xs mb-0.5" style={{ color: '#8a7f75' }}>{user?.email}</p>
+          )}
           <p className="text-xs" style={{ color: '#8a7f75' }}>חשבון SuperZol</p>
         </div>
 

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import Image from 'next/image';
+import GoogleAuthButton from '@/components/GoogleAuthButton';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -141,6 +142,16 @@ export default function LoginPage() {
               {loading ? 'טוען...' : isSignUp ? 'צור חשבון' : 'התחבר'}
             </button>
           </form>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-4">
+            <div style={{ flex: 1, height: 1, background: 'rgba(182, 171, 156, 0.5)' }} />
+            <span style={{ fontSize: 13, color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}>או</span>
+            <div style={{ flex: 1, height: 1, background: 'rgba(182, 171, 156, 0.5)' }} />
+          </div>
+
+          {/* Google Sign-In */}
+          <GoogleAuthButton redirectTo="/" />
 
           <div className="mt-4 text-center">
             <button

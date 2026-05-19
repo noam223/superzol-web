@@ -214,6 +214,14 @@ function RowImage({ itemCode, name, groupId }: { itemCode: string; name: string;
   const [src, setSrc] = useState(() => !isGroup ? getProductImageUrl(itemCode) : '');
   const [failed, setFailed] = useState(isGroup && !groupId);
 
+  // Reset resolved image when groupId changes (e.g. different group item in list)
+  useEffect(() => {
+    if (!isGroup) return;
+    setResolvedCode(null);
+    setSrc('');
+    setFailed(!groupId);
+  }, [isGroup, groupId]);
+
   useEffect(() => {
     if (isGroup && groupId && !resolvedCode) {
       supabase

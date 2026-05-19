@@ -242,12 +242,12 @@ function GroupsTab() {
     }
   };
 
-  const setGroupImage = async (groupId: string, itemCode: string) => {
+  const setGroupImage = useCallback(async (groupId: string, itemCode: string) => {
     await supabase.from('product_groups').update({ image_item_code: itemCode }).eq('id', groupId);
     setGroups(prev => prev.map(g => g.id === groupId ? { ...g, image_item_code: itemCode } : g));
     setSelectedGroup(prev => prev?.id === groupId ? { ...prev, image_item_code: itemCode } : prev);
     toast.success('תמונת הקבוצה עודכנה', { duration: 1200 });
-  };
+  }, []);
 
   const toggleFreshProduct = async (group: ProductGroup) => {
     const newVal = !group.is_fresh_product;
@@ -429,7 +429,7 @@ function GroupsTab() {
           : groups.length === 0 ? <p className="text-sm text-center py-6" style={{ color: '#8a7f75' }}>אין קבוצות עדיין</p>
           : groups.filter(g => !groupFilter.trim() || g.name.toLowerCase().includes(groupFilter.trim().toLowerCase())).map(group => (
             <div key={group.id} onClick={() => selectGroup(group)} className="flex items-center gap-2 px-3 py-2.5 rounded-2xl cursor-pointer transition-all group" style={{ background: selectedGroup?.id === group.id ? 'rgba(191,44,44,0.1)' : 'rgba(233,216,197,0.85)', border: selectedGroup?.id === group.id ? '1.5px solid rgba(191,44,44,0.35)' : '1.5px solid rgba(182,171,156,0.4)' }}>
-              <ProductThumb itemCode={group.image_item_code || ''} name={group.name} />
+              <ProductThumb key={group.image_item_code || group.id} itemCode={group.image_item_code || ''} name={group.name} />
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
                   {group.is_fresh_product && <span className="mr-1" title="מוצר טרי">🥩</span>}

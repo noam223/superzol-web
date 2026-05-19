@@ -3,6 +3,7 @@ import './globals.css'
 import { Toaster } from 'react-hot-toast'
 import NavbarWrapper from '@/components/NavbarWrapper'
 import LocationPrompt from '@/components/LocationPrompt'
+import InstallPrompt from '@/components/InstallPrompt'
 
 export const metadata: Metadata = {
   title: 'סופרזול - השוואת מחירים בסופרמרקטים',
@@ -46,6 +47,7 @@ export default function RootLayout({
             },
           }}
         />
+        <InstallPrompt />
         {children}
         <NavbarWrapper />
         <LocationPrompt />

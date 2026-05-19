@@ -123,6 +123,18 @@ function storeIdVariants(storeId: string): string[] {
 }
 
 /**
+ * Scoped PLU codes look like "{chainId}-{plu}" (e.g. "7290058140886-105").
+ * They are chain-specific internal codes that must only be looked up in their own chain.
+ * Returns { scopedChainId, rawCode } if scoped, or null if it's a regular barcode.
+ */
+function parseScopedCode(code: string): { scopedChainId: string; rawCode: string } | null {
+  // Chain IDs are 13-digit numbers (Israeli GS1 prefix)
+  const match = code.match(/^(\d{13})-(.+)$/);
+  if (!match) return null;
+  return { scopedChainId: match[1], rawCode: match[2] };
+}
+
+/**
  * Calculate the effective (promo-adjusted) per-unit price for an item.
  *
  * XML semantics (confirmed from real data):
@@ -468,7 +480,9 @@ export async function POST(request: NextRequest) {
         // For each item, batch-fetch prices across all stores in this chain
         await Promise.all(
           items.map(async (item) => {
-            // Determine which item codes to look up
+            // Determine which item codes to look up.
+            // Scoped PLU codes (e.g. "7290058140886-105") are chain-specific:
+            // only look them up in their own chain, using the raw PLU for the doc ID.
             let codesToCheck: string[];
             if (item.is_fresh_product) {
               const label = item.group_label || item.item_name;
@@ -477,6 +491,21 @@ export async function POST(request: NextRequest) {
               codesToCheck = item.candidate_codes;
             } else {
               codesToCheck = [item.item_code];
+            }
+
+            // Resolve scoped codes: filter to this chain only, extract raw PLU
+            const resolvedCodes: string[] = [];
+            for (const code of codesToCheck) {
+              const scoped = parseScopedCode(code);
+              if (scoped) {
+                // Scoped PLU — only valid for its own chain
+                if (scoped.scopedChainId === chainId) {
+                  resolvedCodes.push(scoped.rawCode);
+                }
+                // Skip for other chains
+              } else {
+                resolvedCodes.push(code);
+              }
             }
 
             // For fresh produce: also search by name in this chain collection.
@@ -490,7 +519,7 @@ export async function POST(request: NextRequest) {
             }
 
             // If no codes AND no name results → mark all stores missing
-            if (codesToCheck.length === 0 && (!produceByNameMap || produceByNameMap.size === 0)) {
+            if (resolvedCodes.length === 0 && (!produceByNameMap || produceByNameMap.size === 0)) {
               for (const store of stores) {
                 const storeKey = `${chainId}-${storeIdVariants(store.store_id)[0]}`;
                 const sr = storeResultMap.get(storeKey);
@@ -516,10 +545,10 @@ export async function POST(request: NextRequest) {
 
             // Batch fetch by code (if any codes to check)
             let priceMap = new Map<string, DocData>();
-            if (codesToCheck.length > 0) {
+            if (resolvedCodes.length > 0) {
               const docIds: string[] = [];
               for (const sid of allSids) {
-                for (const code of codesToCheck) {
+                for (const code of resolvedCodes) {
                   docIds.push(`${chainId}-${sid}-${code}`);
                 }
               }
@@ -549,7 +578,7 @@ export async function POST(request: NextRequest) {
 
               // Check code-based results
               for (const sid of variants) {
-                for (const code of codesToCheck) {
+                for (const code of resolvedCodes) {
                   const docId = `${chainId}-${sid}-${code}`;
                   const doc = priceMap.get(docId);
                   if (!doc || doc.item_price <= 0) continue;

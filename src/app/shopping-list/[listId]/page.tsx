@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Square, X, MapPin, ArrowRight, Pencil } from 'lucide-react';
+import { ShoppingCart, Trash2, Check, Plus, Search, GitCompare, CheckSquare, Square, X, MapPin, ArrowRight, Pencil, Share2 } from 'lucide-react';
 import { getProductImageUrl, getProductImageFallback } from '@/lib/images';
 import { getChainLogoUrl } from '@/lib/chainLogos';
 import { getUserLocation } from '@/lib/location';
@@ -15,31 +15,6 @@ const PRODUCTS_INDEX = 'products_index';
 
 type StoreListItem = { item_code: string; item_name: string; quantity: number; price: number };
 type StoreList = { store_name: string; items: StoreListItem[] };
-
-const NAMED_LIST_ITEMS_PREFIX = 'superzol_named_list_items_';
-
-function loadNamedListItems(listId: string): ListItem[] {
-  try {
-    const raw = localStorage.getItem(`${NAMED_LIST_ITEMS_PREFIX}${listId}`);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return [];
-}
-
-function saveNamedListItems(listId: string, items: ListItem[]) {
-  try { localStorage.setItem(`${NAMED_LIST_ITEMS_PREFIX}${listId}`, JSON.stringify(items)); } catch { /* ignore */ }
-}
-
-function getNamedListName(listId: string): string {
-  try {
-    const raw = localStorage.getItem('superzol_named_lists');
-    if (raw) {
-      const lists: { id: string; name: string }[] = JSON.parse(raw);
-      return lists.find(l => l.id === listId)?.name ?? 'רשימה';
-    }
-  } catch { /* ignore */ }
-  return 'רשימה';
-}
 
 type GroupProduct = {
   item_code: string;
@@ -1182,7 +1157,10 @@ export default function ShoppingListDetailPage() {
   const isNamedList = listId.startsWith('named-');
   const namedListId = isNamedList ? listId.slice('named-'.length) : '';
   const storeName = isStoreList ? decodeURIComponent(listId.slice('store-'.length)) : '';
-  const namedListName = isNamedList ? getNamedListName(namedListId) : '';
+
+  const [namedListName, setNamedListName] = useState('רשימה');
+  const [namedListShareToken, setNamedListShareToken] = useState<string | null>(null);
+  const [namedListOwnerId, setNamedListOwnerId] = useState<string | null>(null);
 
   const [items, setItems] = useState<ListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1203,9 +1181,6 @@ export default function ShoppingListDetailPage() {
   const [allGroups, setAllGroups] = useState<{ id: string; name: string; image_item_code: string | null }[]>([]);
   const [matchingGroups, setMatchingGroups] = useState<{ id: string; name: string; image_item_code: string | null }[]>([]);
 
-  // Long-press refs per item
-  const pressTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-
   // Scroll state
   const isScrollingRef = useRef<boolean>(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1219,37 +1194,82 @@ export default function ShoppingListDetailPage() {
     return () => { window.removeEventListener('scroll', onScroll); if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current); };
   }, []);
 
+  // Load user + items, set up Realtime subscription
   useEffect(() => {
-    if (isNamedList) {
-      // Load from localStorage
-      const saved = loadNamedListItems(namedListId);
-      setItems(saved);
-      setLoading(false);
-      return;
-    }
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user);
-      if (user && !isStoreList) loadItems(user.id);
-      else setLoading(false);
+      if (isStoreList) { setLoading(false); return; }
+      if (isNamedList) {
+        // Load named list metadata (name, share_token, owner_id)
+        supabase.from('shopping_lists').select('name, share_token, owner_id').eq('id', namedListId).single()
+          .then(({ data }) => {
+            if (data) {
+              setNamedListName(data.name);
+              setNamedListShareToken(data.share_token);
+              setNamedListOwnerId(data.owner_id);
+            }
+          });
+        // Load items for this named list
+        supabase.from('shopping_list_items').select('*').eq('list_id', namedListId)
+          .order('created_at', { ascending: false })
+          .then(({ data, error }) => {
+            if (!error && data) setItems(data as ListItem[]);
+            setLoading(false);
+          });
+        return;
+      }
+      // Main list
+      if (user) {
+        supabase.from('shopping_list_items').select('*')
+          .eq('user_id', user.id).is('list_id', null)
+          .order('created_at', { ascending: false })
+          .then(({ data, error }) => {
+            if (!error && data) setItems(data as ListItem[]);
+            setLoading(false);
+          });
+      } else {
+        setLoading(false);
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStoreList, isNamedList, namedListId]);
 
-  const loadItems = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('shopping_list_items')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+  // Realtime subscription for named lists and main list
+  useEffect(() => {
+    if (isStoreList) return;
+    const filter = isNamedList
+      ? `list_id=eq.${namedListId}`
+      : undefined; // main list: we'll filter by user_id after auth
 
-    if (!error && data) setItems(data);
-    setLoading(false);
-  };
+    const channel = supabase
+      .channel(`shopping_list_items:${isNamedList ? namedListId : 'main'}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'shopping_list_items',
+          ...(filter ? { filter } : {}),
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newItem = payload.new as ListItem;
+            // Avoid duplicates (our own optimistic inserts)
+            setItems(prev => prev.some(i => i.id === newItem.id) ? prev : [newItem, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = payload.new as ListItem;
+            setItems(prev => prev.map(i => i.id === updated.id ? updated : i));
+          } else if (payload.eventType === 'DELETE') {
+            const deleted = payload.old as { id: string };
+            setItems(prev => prev.filter(i => i.id !== deleted.id));
+          }
+        }
+      )
+      .subscribe();
 
-  // Helper: persist named list items to localStorage
-  const persistNamedItems = useCallback((updated: ListItem[]) => {
-    if (isNamedList) saveNamedListItems(namedListId, updated);
-  }, [isNamedList, namedListId]);
+    return () => { supabase.removeChannel(channel); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStoreList, isNamedList, namedListId]);
 
   // Load all groups once on mount (for inline search)
   useEffect(() => {
@@ -1279,67 +1299,47 @@ export default function ShoppingListDetailPage() {
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [searchQuery, allGroups]);
 
+  // Share named list
+  const shareNamedList = useCallback(async () => {
+    if (!namedListShareToken) return;
+    const shareUrl = `${window.location.origin}/shopping-list/join/${namedListShareToken}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: `רשימת קניות: ${namedListName}`, url: shareUrl }); }
+      catch { /* user cancelled */ }
+    } else {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success('הקישור הועתק ללוח');
+    }
+  }, [namedListShareToken, namedListName]);
+
   // Add a group to the current list
   const addGroupToList = useCallback(async (group: { id: string; name: string }) => {
-    if (isNamedList) {
-      const newItem: ListItem = {
-        id: crypto.randomUUID(),
-        item_code: 'group',
-        item_name: group.name,
-        quantity: 1,
-        checked: false,
-        group_id: group.id,
-      };
-      setItems(prev => { const u = [newItem, ...prev]; persistNamedItems(u); return u; });
-      toast.success(`📦 ${group.name} נוסף`);
-    } else {
-      if (!user) { toast.error('התחבר כדי לשמור לרשימה'); return; }
-      const { data, error } = await supabase.from('shopping_list_items').insert({
-        user_id: user.id,
-        item_code: 'group',
-        item_name: group.name,
-        quantity: 1,
-        checked: false,
-        group_id: group.id,
-      }).select().single();
-      if (error) { toast.error('שגיאה בהוספה'); return; }
-      setItems(prev => [data as ListItem, ...prev]);
-      toast.success(`📦 ${group.name} נוסף`);
-    }
+    if (!user) { toast.error('התחבר כדי לשמור לרשימה'); return; }
+    const insertData = isNamedList
+      ? { user_id: user.id, list_id: namedListId, item_code: 'group', item_name: group.name, quantity: 1, checked: false, group_id: group.id }
+      : { user_id: user.id, list_id: null, item_code: 'group', item_name: group.name, quantity: 1, checked: false, group_id: group.id };
+    const { data, error } = await supabase.from('shopping_list_items').insert(insertData).select().single();
+    if (error) { toast.error('שגיאה בהוספה'); return; }
+    setItems(prev => prev.some(i => i.id === (data as ListItem).id) ? prev : [data as ListItem, ...prev]);
+    toast.success(`📦 ${group.name} נוסף`);
     setSearchQuery('');
     setSearchResults([]);
     setMatchingGroups([]);
-  }, [isNamedList, user, persistNamedItems]);
+  }, [isNamedList, namedListId, user]);
 
   // Add a product to the current list
   const addItemToList = useCallback(async (product: IndexProduct) => {
-    if (isNamedList) {
-      const newItem: ListItem = {
-        id: crypto.randomUUID(),
-        item_code: product.item_code,
-        item_name: product.item_name,
-        quantity: 1,
-        checked: false,
-        group_id: null,
-      };
-      setItems(prev => { const u = [newItem, ...prev]; persistNamedItems(u); return u; });
-      toast.success(`${product.item_name} נוסף`);
-    } else {
-      if (!user) { toast.error('התחבר כדי לשמור לרשימה'); return; }
-      const { data, error } = await supabase.from('shopping_list_items').insert({
-        user_id: user.id,
-        item_code: product.item_code,
-        item_name: product.item_name,
-        quantity: 1,
-        checked: false,
-      }).select().single();
-      if (error) { toast.error('שגיאה בהוספה'); return; }
-      setItems(prev => [data as ListItem, ...prev]);
-      toast.success(`${product.item_name} נוסף`);
-    }
+    if (!user) { toast.error('התחבר כדי לשמור לרשימה'); return; }
+    const insertData = isNamedList
+      ? { user_id: user.id, list_id: namedListId, item_code: product.item_code, item_name: product.item_name, quantity: 1, checked: false }
+      : { user_id: user.id, list_id: null, item_code: product.item_code, item_name: product.item_name, quantity: 1, checked: false };
+    const { data, error } = await supabase.from('shopping_list_items').insert(insertData).select().single();
+    if (error) { toast.error('שגיאה בהוספה'); return; }
+    setItems(prev => prev.some(i => i.id === (data as ListItem).id) ? prev : [data as ListItem, ...prev]);
+    toast.success(`${product.item_name} נוסף`);
     setSearchQuery('');
     setSearchResults([]);
-  }, [isNamedList, user, persistNamedItems]);
+  }, [isNamedList, namedListId, user]);
 
   const checkRangeForItems = useCallback(async (itemList: ListItem[]) => {
     const loc = await getUserLocation();
@@ -1361,45 +1361,31 @@ export default function ShoppingListDetailPage() {
 
   const toggleItem = async (item: ListItem) => {
     if (multiSelect) { toggleSelect(item.id); return; }
-    if (isNamedList) {
-      setItems(prev => { const u = prev.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i); persistNamedItems(u); return u; });
-      return;
-    }
+    // Optimistic update
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i));
     const { error } = await supabase.from('shopping_list_items').update({ checked: !item.checked }).eq('id', item.id);
-    if (!error) setItems(prev => prev.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i));
+    if (error) setItems(prev => prev.map(i => i.id === item.id ? { ...i, checked: item.checked } : i)); // revert
   };
 
   const deleteItem = async (id: string) => {
-    if (isNamedList) {
-      setItems(prev => { const u = prev.filter(i => i.id !== id); persistNamedItems(u); return u; });
-      toast.success('הוסר מהרשימה');
-      return;
-    }
-    const { error } = await supabase.from('shopping_list_items').delete().eq('id', id);
-    if (!error) { setItems(prev => prev.filter(i => i.id !== id)); toast.success('הוסר מהרשימה'); }
+    // Optimistic update
+    setItems(prev => prev.filter(i => i.id !== id));
+    toast.success('הוסר מהרשימה');
+    await supabase.from('shopping_list_items').delete().eq('id', id);
   };
 
   const updateQuantity = async (id: string, quantity: number) => {
     if (quantity < 1) return;
-    if (isNamedList) {
-      setItems(prev => { const u = prev.map(i => i.id === id ? { ...i, quantity } : i); persistNamedItems(u); return u; });
-      return;
-    }
-    await supabase.from('shopping_list_items').update({ quantity }).eq('id', id);
     setItems(prev => prev.map(i => i.id === id ? { ...i, quantity } : i));
+    await supabase.from('shopping_list_items').update({ quantity }).eq('id', id);
   };
 
   const clearChecked = async () => {
     const checkedIds = items.filter(i => i.checked).map(i => i.id);
     if (checkedIds.length === 0) return;
-    if (isNamedList) {
-      setItems(prev => { const u = prev.filter(i => !i.checked); persistNamedItems(u); return u; });
-      toast.success(`הוסרו ${checkedIds.length} פריטים`);
-      return;
-    }
-    await supabase.from('shopping_list_items').delete().in('id', checkedIds);
     setItems(prev => prev.filter(i => !i.checked));
     toast.success(`הוסרו ${checkedIds.length} פריטים`);
+    await supabase.from('shopping_list_items').delete().in('id', checkedIds);
   };
 
   const toggleSelect = (id: string) => {
@@ -1413,27 +1399,19 @@ export default function ShoppingListDetailPage() {
   const bulkDelete = async () => {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
-    if (isNamedList) {
-      setItems(prev => { const u = prev.filter(i => !selectedIds.has(i.id)); persistNamedItems(u); return u; });
-    } else {
-      await supabase.from('shopping_list_items').delete().in('id', ids);
-      setItems(prev => prev.filter(i => !selectedIds.has(i.id)));
-    }
+    setItems(prev => prev.filter(i => !selectedIds.has(i.id)));
     toast.success(`הוסרו ${ids.length} פריטים`);
     exitMultiSelect();
+    await supabase.from('shopping_list_items').delete().in('id', ids);
   };
 
   const bulkCheck = async () => {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
-    if (isNamedList) {
-      setItems(prev => { const u = prev.map(i => selectedIds.has(i.id) ? { ...i, checked: true } : i); persistNamedItems(u); return u; });
-    } else {
-      await supabase.from('shopping_list_items').update({ checked: true }).in('id', ids);
-      setItems(prev => prev.map(i => selectedIds.has(i.id) ? { ...i, checked: true } : i));
-    }
+    setItems(prev => prev.map(i => selectedIds.has(i.id) ? { ...i, checked: true } : i));
     toast.success(`סומנו ${ids.length} פריטים`);
     exitMultiSelect();
+    await supabase.from('shopping_list_items').update({ checked: true }).in('id', ids);
   };
 
   const unchecked = items.filter(i => !i.checked);
@@ -1468,17 +1446,31 @@ export default function ShoppingListDetailPage() {
               {isStoreList ? storeName : isNamedList ? namedListName : 'רשימת קניות שלי'}
             </h1>
           </div>
-          {/* "מחק מסומנים" stays in header only when there are checked items */}
-          {!isStoreList && !multiSelect && checked.length > 0 && (
-            <button
-              onClick={clearChecked}
-              className="text-xs flex items-center gap-1 px-3 py-1.5 rounded-xl"
-              style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', fontFamily: 'Heebo, sans-serif' }}
-            >
-              <Trash2 size={12} />
-              מחק מסומנים ({checked.length})
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {/* Share button — only for named list owner */}
+            {isNamedList && namedListOwnerId && user && namedListOwnerId === user.id && (
+              <button
+                onClick={shareNamedList}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-medium"
+                style={{ background: 'rgba(45,122,45,0.12)', color: '#2d7a2d', fontFamily: 'Heebo, sans-serif' }}
+                title="שתף רשימה"
+              >
+                <Share2 size={13} />
+                שתף
+              </button>
+            )}
+            {/* "מחק מסומנים" stays in header only when there are checked items */}
+            {!isStoreList && !multiSelect && checked.length > 0 && (
+              <button
+                onClick={clearChecked}
+                className="text-xs flex items-center gap-1 px-3 py-1.5 rounded-xl"
+                style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C', fontFamily: 'Heebo, sans-serif' }}
+              >
+                <Trash2 size={12} />
+                מחק מסומנים ({checked.length})
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Multi-select action bar */}
@@ -1518,13 +1510,13 @@ export default function ShoppingListDetailPage() {
               onClick={async () => {
                 if (!confirm('למחוק את כל המוצרים מהרשימה?')) return;
                 if (isNamedList) {
-                  saveNamedListItems(namedListId, []);
                   setItems([]);
                   toast.success('הרשימה נוקתה');
+                  await supabase.from('shopping_list_items').delete().eq('list_id', namedListId);
                 } else if (user) {
-                  const { error } = await supabase.from('shopping_list_items').delete().eq('user_id', user.id);
-                  if (!error) { setItems([]); toast.success('הרשימה נוקתה'); }
-                  else toast.error('שגיאה במחיקה');
+                  setItems([]);
+                  toast.success('הרשימה נוקתה');
+                  await supabase.from('shopping_list_items').delete().eq('user_id', user.id).is('list_id', null);
                 }
               }}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-medium"

@@ -2,28 +2,14 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ShoppingCart, Plus, Trash2, ChevronLeft, X, Check } from 'lucide-react';
+import { ShoppingList } from '@/lib/supabase';
+import { ShoppingCart, Plus, Trash2, ChevronLeft, X, Check, Share2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 
-const NAMED_LISTS_KEY = 'superzol_named_lists';
-
 type StoreListItem = { item_code: string; item_name: string; quantity: number; price: number };
 type StoreList = { store_name: string; items: StoreListItem[] };
-type NamedList = { id: string; name: string; created_at: string };
-
-function loadNamedLists(): NamedList[] {
-  try {
-    const raw = localStorage.getItem(NAMED_LISTS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return [];
-}
-
-function saveNamedLists(lists: NamedList[]) {
-  try { localStorage.setItem(NAMED_LISTS_KEY, JSON.stringify(lists)); } catch { /* ignore */ }
-}
 
 // ── New list bottom sheet ─────────────────────────────────────────────────────
 function NewListSheet({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => void }) {
@@ -97,58 +83,102 @@ export default function ShoppingListsOverviewPage() {
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [mainItemCount, setMainItemCount] = useState<number | null>(null);
   const [storeLists, setStoreLists] = useState<StoreList[]>([]);
-  const [namedLists, setNamedLists] = useState<NamedList[]>([]);
+  const [namedLists, setNamedLists] = useState<ShoppingList[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewListSheet, setShowNewListSheet] = useState(false);
 
-  // Load user + main list item count
+  // Load user + main list item count + named lists from Supabase
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user);
       if (user) {
+        // Load main list count
         supabase
           .from('shopping_list_items')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
-          .then(({ count }) => { setMainItemCount(count ?? 0); setLoading(false); });
+          .is('list_id', null)
+          .then(({ count }) => setMainItemCount(count ?? 0));
+
+        // Load named lists (owned + joined via shared_list_members)
+        loadNamedLists(user.id);
       } else {
         setLoading(false);
       }
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load store lists from sessionStorage + named lists from localStorage
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem('superzol_store_lists');
-      if (raw) {
-        const parsed: StoreList[] = JSON.parse(raw);
-        if (Array.isArray(parsed)) setStoreLists(parsed);
-      }
-    } catch { /* ignore */ }
-    setNamedLists(loadNamedLists());
-  }, []);
+  const loadNamedLists = async (userId: string) => {
+    // Get lists owned by user
+    const { data: owned } = await supabase
+      .from('shopping_lists')
+      .select('*')
+      .eq('owner_id', userId)
+      .order('created_at', { ascending: false });
 
-  const handleCreateNamedList = useCallback((name: string) => {
-    const newList: NamedList = { id: crypto.randomUUID(), name, created_at: new Date().toISOString() };
-    setNamedLists(prev => {
-      const updated = [...prev, newList];
-      saveNamedLists(updated);
-      return updated;
-    });
+    // Get lists joined via shared_list_members
+    const { data: memberRows } = await supabase
+      .from('shared_list_members')
+      .select('list_id')
+      .eq('user_id', userId);
+
+    let joined: ShoppingList[] = [];
+    if (memberRows && memberRows.length > 0) {
+      const joinedIds = memberRows.map((r: { list_id: string }) => r.list_id);
+      const { data: joinedLists } = await supabase
+        .from('shopping_lists')
+        .select('*')
+        .in('id', joinedIds)
+        .neq('owner_id', userId) // exclude own lists (already in owned)
+        .order('created_at', { ascending: false });
+      joined = (joinedLists as ShoppingList[]) ?? [];
+    }
+
+    const all = [...(owned as ShoppingList[] ?? []), ...joined];
+    setNamedLists(all);
+    setLoading(false);
+  };
+
+  const handleCreateNamedList = useCallback(async (name: string) => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from('shopping_lists')
+      .insert({ owner_id: user.id, name })
+      .select()
+      .single();
+    if (error || !data) { toast.error('שגיאה ביצירת הרשימה'); return; }
+    const newList = data as ShoppingList;
+    setNamedLists(prev => [newList, ...prev]);
     toast.success(`הרשימה "${name}" נוצרה`);
     router.push(`/shopping-list/named-${newList.id}`);
-  }, [router]);
+  }, [user, router]);
 
-  const deleteNamedList = useCallback((id: string) => {
-    setNamedLists(prev => {
-      const updated = prev.filter(l => l.id !== id);
-      saveNamedLists(updated);
-      // Also remove items for this list
-      try { localStorage.removeItem(`superzol_named_list_items_${id}`); } catch { /* ignore */ }
-      return updated;
-    });
-    toast.success('הרשימה נמחקה');
+  const deleteNamedList = useCallback(async (list: ShoppingList) => {
+    if (!user) return;
+    if (list.owner_id === user.id) {
+      // Owner: delete the list (cascades to items)
+      const { error } = await supabase.from('shopping_lists').delete().eq('id', list.id);
+      if (error) { toast.error('שגיאה במחיקה'); return; }
+    } else {
+      // Member: just leave the list
+      await supabase.from('shared_list_members').delete()
+        .eq('list_id', list.id).eq('user_id', user.id);
+    }
+    setNamedLists(prev => prev.filter(l => l.id !== list.id));
+    toast.success('הרשימה הוסרה');
+  }, [user]);
+
+  const shareList = useCallback(async (list: ShoppingList) => {
+    const shareUrl = `${window.location.origin}/shopping-list/join/${list.share_token}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `רשימת קניות: ${list.name}`, url: shareUrl });
+      } catch { /* user cancelled */ }
+    } else {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success('הקישור הועתק ללוח');
+    }
   }, []);
 
   const deleteStoreList = useCallback((storeName: string) => {
@@ -162,6 +192,17 @@ export default function ShoppingListsOverviewPage() {
       return updated;
     });
     toast.success('הרשימה נמחקה');
+  }, []);
+
+  // Load store lists from sessionStorage
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('superzol_store_lists');
+      if (raw) {
+        const parsed: StoreList[] = JSON.parse(raw);
+        if (Array.isArray(parsed)) setStoreLists(parsed);
+      }
+    } catch { /* ignore */ }
   }, []);
 
   if (!user) {
@@ -224,7 +265,7 @@ export default function ShoppingListsOverviewPage() {
               <ChevronLeft size={18} style={{ color: '#B6AB9C' }} />
             </Link>
 
-            {/* Named lists (localStorage) */}
+            {/* Named lists (Supabase) */}
             {namedLists.length > 0 && (
               <>
                 <p className="text-xs font-medium px-1 mt-2" style={{ color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}>רשימות שלי</p>
@@ -232,23 +273,35 @@ export default function ShoppingListsOverviewPage() {
                   <div key={list.id} className="flex items-center justify-between px-4 py-4 rounded-2xl"
                     style={{ background: 'rgba(233,216,197,0.9)', border: '1.5px solid rgba(182,171,156,0.4)' }}>
                     <Link href={`/shopping-list/named-${list.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-xl shrink-0" style={{ background: 'rgba(79,72,63,0.1)' }}>
-                        <ShoppingCart size={20} style={{ color: '#4F483F' }} />
+                      <div className="flex items-center justify-center w-10 h-10 rounded-xl shrink-0" style={{ background: list.owner_id === user.id ? 'rgba(79,72,63,0.1)' : 'rgba(45,122,45,0.12)' }}>
+                        <ShoppingCart size={20} style={{ color: list.owner_id === user.id ? '#4F483F' : '#2d7a2d' }} />
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-bold truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{list.name}</p>
                         <p className="text-xs mt-0.5" style={{ color: '#8a7f75' }}>
+                          {list.owner_id !== user.id ? '🔗 משותפת · ' : ''}
                           {new Date(list.created_at).toLocaleDateString('he-IL')}
                         </p>
                       </div>
                     </Link>
-                    <div className="flex items-center gap-2 shrink-0 mr-2">
+                    <div className="flex items-center gap-1.5 shrink-0 mr-2">
                       <ChevronLeft size={18} style={{ color: '#B6AB9C' }} />
+                      {/* Share button — only for owner */}
+                      {list.owner_id === user.id && (
+                        <button
+                          onClick={e => { e.preventDefault(); shareList(list); }}
+                          className="flex items-center justify-center w-8 h-8 rounded-full"
+                          style={{ background: 'rgba(45,122,45,0.12)', color: '#2d7a2d' }}
+                          title="שתף רשימה"
+                        >
+                          <Share2 size={14} />
+                        </button>
+                      )}
                       <button
-                        onClick={e => { e.preventDefault(); deleteNamedList(list.id); }}
+                        onClick={e => { e.preventDefault(); deleteNamedList(list); }}
                         className="flex items-center justify-center w-8 h-8 rounded-full"
                         style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C' }}
-                        title="מחק רשימה"
+                        title={list.owner_id === user.id ? 'מחק רשימה' : 'עזוב רשימה'}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -299,7 +352,7 @@ export default function ShoppingListsOverviewPage() {
               <div className="text-center py-10" style={{ color: '#8a7f75' }}>
                 <ShoppingCart size={40} className="mx-auto mb-3 opacity-30" />
                 <p className="text-sm">אין פריטים ברשימה</p>
-                <p className="text-xs mt-1">לחץ על "רשימה חדשה" כדי להתחיל</p>
+                <p className="text-xs mt-1">לחץ על &quot;רשימה חדשה&quot; כדי להתחיל</p>
               </div>
             )}
           </div>

@@ -12,17 +12,19 @@ export const isSupabaseConfigured =
 export type ShoppingListItem = {
   id: string;
   user_id: string;
+  list_id: string | null;
   item_code: string;
   item_name: string;
   quantity: number;
   checked: boolean;
+  group_id?: string | null;
   created_at: string;
 };
 
 export type ShoppingList = {
   id: string;
-  user_id: string;
+  owner_id: string;
   name: string;
+  share_token: string;
   created_at: string;
-  items: ShoppingListItem[];
 };

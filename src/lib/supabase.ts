@@ -3,9 +3,18 @@ import { createBrowserClient } from '@supabase/ssr';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
 
-// createBrowserClient stores the session in cookies (not just localStorage)
-// so the server-side middleware can read it and protect routes correctly.
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+// Singleton: createBrowserClient stores the session in cookies AND localStorage,
+// and syncs between them. Must be a singleton so all pages share the same instance.
+let _supabase: ReturnType<typeof createBrowserClient> | null = null;
+
+function getSupabaseClient() {
+  if (!_supabase) {
+    _supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+  }
+  return _supabase;
+}
+
+export const supabase = getSupabaseClient();
 
 export const isSupabaseConfigured =
   supabaseUrl !== 'https://placeholder.supabase.co' &&

@@ -4,29 +4,54 @@ import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
-// Inner component that reads search params and handles the OAuth code exchange
+// Inner component that handles the OAuth callback.
+// With implicit flow, Supabase puts the token in the URL hash (#access_token=...).
+// createBrowserClient detects this automatically via detectSessionInUrl.
+// With PKCE flow (code in query param), we exchange it manually.
 function CallbackHandler() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    const code = searchParams.get('code');
     const next = searchParams.get('next') || '/';
+    const code = searchParams.get('code');
+    const errorParam = searchParams.get('error');
 
-    if (!code) {
-      router.replace(next);
+    if (errorParam) {
+      console.error('OAuth error:', errorParam, searchParams.get('error_description'));
+      router.replace('/login?error=oauth');
       return;
     }
 
-    // Exchange the OAuth code for a session — this stores the session in
-    // localStorage (via createBrowserClient) so all client-side getUser() calls work.
-    supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
-      if (error) {
-        console.error('OAuth callback error:', error.message);
-        router.replace('/login?error=oauth');
-      } else {
-        // Full page navigation so the new session is picked up everywhere
+    if (code) {
+      // PKCE flow: exchange code for session
+      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+        if (error) {
+          console.error('OAuth callback error:', error.message);
+          router.replace('/login?error=oauth');
+        } else {
+          window.location.href = next;
+        }
+      });
+      return;
+    }
+
+    // Implicit flow: token is in the URL hash — createBrowserClient handles it automatically.
+    // Just wait for the session to be set, then navigate.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
         window.location.href = next;
+      } else {
+        // Give it a moment for the hash to be processed
+        setTimeout(() => {
+          supabase.auth.getSession().then(({ data: { session: s } }) => {
+            if (s) {
+              window.location.href = next;
+            } else {
+              router.replace('/login?error=oauth');
+            }
+          });
+        }, 500);
       }
     });
   }, [router, searchParams]);

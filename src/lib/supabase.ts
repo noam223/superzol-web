@@ -9,7 +9,13 @@ let _supabase: ReturnType<typeof createBrowserClient> | null = null;
 
 function getSupabaseClient() {
   if (!_supabase) {
-    _supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+    _supabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        // Use implicit flow so the OAuth token comes back in the URL hash,
+        // avoiding PKCE code_verifier storage issues across page navigations.
+        flowType: 'implicit',
+      },
+    });
   }
   return _supabase;
 }

@@ -19,6 +19,7 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
   const [lastScanned, setLastScanned] = useState<string | null>(null);
   const [scanFlash, setScanFlash] = useState(false);
   const [ready, setReady] = useState(false);
+  const [cameraLabel, setCameraLabel] = useState<string>('');
   const lastCodeRef = useRef<string>('');
   const lastTimeRef = useRef<number>(0);
   const scannerRef = useRef<unknown>(null);
@@ -70,20 +71,43 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
         const { Html5Qrcode } = await import('html5-qrcode');
         if (!mountedRef.current) return;
 
+        // Enumerate cameras to find the correct back camera.
+        // On many Android devices, facingMode:'environment' picks the wrong lens.
+        // Strategy: get all back cameras, try the LAST one first (often the main camera).
+        let cameraConstraint: Record<string, unknown> = { facingMode: 'environment' };
+        try {
+          // Need permission first to get labels
+          const tmp = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          tmp.getTracks().forEach(t => t.stop());
+
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const backCams = devices.filter(d =>
+            d.kind === 'videoinput' &&
+            !d.label.toLowerCase().includes('front') &&
+            !d.label.toLowerCase().includes('selfie')
+          );
+
+          if (backCams.length > 0) {
+            // Use the LAST back camera — on most Android devices this is the main camera
+            const chosen = backCams[backCams.length - 1];
+            cameraConstraint = { deviceId: { exact: chosen.deviceId } };
+            if (mountedRef.current) setCameraLabel(chosen.label || `מצלמה ${backCams.length}`);
+          }
+        } catch { /* ignore — fall back to facingMode */ }
+
         const html5QrCode = new Html5Qrcode(SCANNER_ID, { verbose: false });
         scannerRef.current = html5QrCode;
 
-        // Use facingMode: environment — browser picks the default back camera (camera 0)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (html5QrCode as any).start(
-          { facingMode: 'environment' },
+          cameraConstraint,
           {
             fps: 15,
             qrbox: { width: 260, height: 150 },
             aspectRatio: 1.333,
             disableFlip: false,
             videoConstraints: {
-              facingMode: 'environment',
+              ...cameraConstraint,
               width: { ideal: 640 },
               height: { ideal: 480 },
             },
@@ -193,6 +217,9 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
         ) : (
           <p className="text-sm" style={{ color: 'rgba(255,255,255,0.6)', fontFamily: 'Heebo, sans-serif' }}>כוון את הברקוד לתוך המסגרת</p>
         )}
+        {cameraLabel ? (
+          <p className="text-xs" style={{ color: 'rgba(255,255,255,0.25)', fontFamily: 'Heebo, sans-serif' }}>{cameraLabel}</p>
+        ) : null}
       </div>
 
       <style>{`

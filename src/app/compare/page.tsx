@@ -1074,6 +1074,8 @@ export default function ComparePage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [loadingUser, setLoadingUser] = useState(true);
   const [listItems, setListItems] = useState<ListItem[]>([]);
+  const [compareListName, setCompareListName] = useState<string | null>(null);
+  const compareListIdRef = useRef<string | null>(null);
   const [location, setLocation] = useState<Location | null>(null);
   const [radiusKm, setRadiusKm] = useState(10);
   const [stores, setStores] = useState<StoreResult[]>([]);
@@ -1153,17 +1155,33 @@ export default function ComparePage() {
 
   // Load user + shopping list + saved location
   useEffect(() => {
+    // Read named list context from sessionStorage (set by shopping list page)
+    const storedListId = sessionStorage.getItem('superzol_compare_list_id');
+    const storedListName = sessionStorage.getItem('superzol_compare_list_name');
+    if (storedListId) {
+      compareListIdRef.current = storedListId;
+      setCompareListName(storedListName || null);
+      // Clear so navigating back to /compare directly loads main list
+      sessionStorage.removeItem('superzol_compare_list_id');
+      sessionStorage.removeItem('superzol_compare_list_name');
+    }
+
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { setLoadingUser(false); return; }
       setLoggedIn(true);
       userIdRef.current = user.id;
 
       // Load shopping list items (including group_id)
-      const { data: rawItems } = await supabase
+      // If a named list ID was passed via sessionStorage, filter by list_id; otherwise load all unchecked items
+      const listId = compareListIdRef.current;
+      const itemsQuery = supabase
         .from('shopping_list_items')
         .select('item_code, item_name, quantity, group_id')
         .eq('user_id', user.id)
         .eq('checked', false);
+      const { data: rawItems } = listId
+        ? await itemsQuery.eq('list_id', listId)
+        : await itemsQuery.is('list_id', null);
 
       if (rawItems?.length) {
         // Resolve each item: regular items get enriched from index, group items get candidate codes
@@ -1653,9 +1671,16 @@ export default function ComparePage() {
         {/* Header */}
         <div className="flex items-center gap-3 mb-5">
           <Image src="/icons/compare.png" alt="השוואה" width={32} height={32} />
-          <h1 className="text-xl font-bold" style={{ color: '#4F483F', fontFamily: 'Rubik, Heebo, sans-serif' }}>
-            השוואת סל קניות
-          </h1>
+          <div>
+            <h1 className="text-xl font-bold" style={{ color: '#4F483F', fontFamily: 'Rubik, Heebo, sans-serif' }}>
+              השוואת סל קניות
+            </h1>
+            {compareListName && (
+              <p className="text-sm mt-0.5" style={{ color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}>
+                רשימה: <span className="font-semibold" style={{ color: '#4F483F' }}>{compareListName}</span>
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Not logged in */}

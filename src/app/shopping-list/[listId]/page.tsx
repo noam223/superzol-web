@@ -1497,9 +1497,9 @@ export default function ShoppingListDetailPage() {
           </div>
         )}
 
-        {/* Action bar: עריכה + נקה רשימה — right side (RTL = justify-start), below search */}
+        {/* Action bar: עריכה + נקה רשימה + השוואת מחירים — right side (RTL = justify-start), below search */}
         {!isStoreList && !multiSelect && items.length > 0 && (
-          <div className="flex justify-start gap-2 mb-2">
+          <div className="flex justify-start gap-2 mb-2 flex-wrap">
             <button
               onClick={() => setMultiSelect(true)}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-medium"
@@ -1527,6 +1527,20 @@ export default function ShoppingListDetailPage() {
               <Trash2 size={12} />
               נקה רשימה
             </button>
+            {isNamedList && (
+              <button
+                onClick={() => {
+                  sessionStorage.setItem('superzol_compare_list_id', namedListId);
+                  sessionStorage.setItem('superzol_compare_list_name', namedListName);
+                  window.location.href = '/compare';
+                }}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-medium"
+                style={{ background: 'rgba(45,122,45,0.1)', color: '#2d7a2d', fontFamily: 'Heebo, sans-serif', border: '1px solid rgba(45,122,45,0.25)' }}
+              >
+                <GitCompare size={12} />
+                השוואת מחירים
+              </button>
+            )}
           </div>
         )}
 

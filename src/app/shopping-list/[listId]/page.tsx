@@ -1315,9 +1315,10 @@ export default function ShoppingListDetailPage() {
   // Add a group to the current list
   const addGroupToList = useCallback(async (group: { id: string; name: string }) => {
     if (!user) { toast.error('התחבר כדי לשמור לרשימה'); return; }
-    const insertData = isNamedList
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const insertData: any = isNamedList
       ? { user_id: user.id, list_id: namedListId, item_code: 'group', item_name: group.name, quantity: 1, checked: false, group_id: group.id }
-      : { user_id: user.id, list_id: null, item_code: 'group', item_name: group.name, quantity: 1, checked: false, group_id: group.id };
+      : { user_id: user.id, item_code: 'group', item_name: group.name, quantity: 1, checked: false, group_id: group.id };
     const { data, error } = await supabase.from('shopping_list_items').insert(insertData).select().single();
     if (error) { toast.error('שגיאה בהוספה'); return; }
     setItems(prev => prev.some(i => i.id === (data as ListItem).id) ? prev : [data as ListItem, ...prev]);
@@ -1330,9 +1331,10 @@ export default function ShoppingListDetailPage() {
   // Add a product to the current list
   const addItemToList = useCallback(async (product: IndexProduct) => {
     if (!user) { toast.error('התחבר כדי לשמור לרשימה'); return; }
-    const insertData = isNamedList
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const insertData: any = isNamedList
       ? { user_id: user.id, list_id: namedListId, item_code: product.item_code, item_name: product.item_name, quantity: 1, checked: false }
-      : { user_id: user.id, list_id: null, item_code: product.item_code, item_name: product.item_name, quantity: 1, checked: false };
+      : { user_id: user.id, item_code: product.item_code, item_name: product.item_name, quantity: 1, checked: false };
     const { data, error } = await supabase.from('shopping_list_items').insert(insertData).select().single();
     if (error) { toast.error('שגיאה בהוספה'); return; }
     setItems(prev => prev.some(i => i.id === (data as ListItem).id) ? prev : [data as ListItem, ...prev]);

@@ -1172,16 +1172,22 @@ export default function ComparePage() {
       userIdRef.current = user.id;
 
       // Load shopping list items (including group_id)
-      // If a named list ID was passed via sessionStorage, filter by list_id; otherwise load all unchecked items
+      // If a named list ID was passed via sessionStorage, filter by list_id only (supports shared lists).
+      // Otherwise fall back to the user's main list (list_id = null).
+      // Use .neq('checked', true) instead of .eq('checked', false) to also include rows where checked IS NULL.
       const listId = compareListIdRef.current;
-      const itemsQuery = supabase
-        .from('shopping_list_items')
-        .select('item_code, item_name, quantity, group_id')
-        .eq('user_id', user.id)
-        .eq('checked', false);
       const { data: rawItems } = listId
-        ? await itemsQuery.eq('list_id', listId)
-        : await itemsQuery.is('list_id', null);
+        ? await supabase
+            .from('shopping_list_items')
+            .select('item_code, item_name, quantity, group_id')
+            .eq('list_id', listId)
+            .neq('checked', true)
+        : await supabase
+            .from('shopping_list_items')
+            .select('item_code, item_name, quantity, group_id')
+            .eq('user_id', user.id)
+            .is('list_id', null)
+            .neq('checked', true);
 
       if (rawItems?.length) {
         // Resolve each item: regular items get enriched from index, group items get candidate codes

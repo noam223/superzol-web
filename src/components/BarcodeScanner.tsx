@@ -82,23 +82,26 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
       // Try to pick the best (non-telephoto) back camera
       const bestCameraId = await getBestCameraId();
 
-      const cameraConstraint = bestCameraId
-        ? { deviceId: { exact: bestCameraId } }
-        : { facingMode: { exact: 'environment' } };
+      // Use low resolution (640x480) to force the main wide-angle camera.
+      // High resolutions trigger the telephoto lens on multi-camera Android phones.
+      const videoConstraints: Record<string, unknown> = {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+      };
+      if (bestCameraId) {
+        videoConstraints.deviceId = { exact: bestCameraId };
+      } else {
+        videoConstraints.facingMode = 'environment'; // no 'exact' — allows fallback
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (html5QrCode as any).start(
-        cameraConstraint,
+        videoConstraints,
         {
           fps: 15,
-          qrbox: { width: 280, height: 160 },
-          aspectRatio: 1.777,
+          qrbox: { width: 260, height: 150 },
+          aspectRatio: 1.333,
           disableFlip: false,
-          videoConstraints: {
-            ...(bestCameraId ? { deviceId: { exact: bestCameraId } } : { facingMode: { exact: 'environment' } }),
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
         },
         (decodedText: string) => { handleScan(decodedText); },
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -107,7 +110,7 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
 
       if (mountedRef.current) setReady(true);
 
-      // After stream starts: reset zoom to 1x and apply continuous autofocus
+      // After stream starts: reset zoom to minimum and apply continuous autofocus
       setTimeout(async () => {
         if (!mountedRef.current) return;
         try {
@@ -117,15 +120,17 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
           if (vt) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const caps = (vt as any).getCapabilities?.() as Record<string, unknown> | undefined;
+            // Reset zoom to minimum (1x)
             if (caps?.zoom) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const zoomMin = (caps.zoom as any).min ?? 1;
               try { await (vt as any).applyConstraints({ advanced: [{ zoom: zoomMin }] }); } catch { /* ignore */ }
             }
+            // Apply continuous autofocus
             try { await (vt as any).applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch { /* ignore */ }
           }
         } catch { /* ignore */ }
-      }, 800);
+      }, 600);
 
     } catch (err) {
       console.error('Stream scanner error:', err);

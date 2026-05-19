@@ -68,7 +68,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-3">
-            <Image src="/icons/logo.png" alt="SuperZol" width={72} height={72} style={{ borderRadius: 20 }} />
+            <Image src="/icons/logo.png" alt="SuperZol" width={216} height={216} style={{ borderRadius: 48 }} />
           </div>
           <h1
             className="text-3xl font-black"

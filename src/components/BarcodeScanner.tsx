@@ -49,15 +49,24 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
         html5QrCode = new Html5Qrcode(SCANNER_ID, { verbose: false });
         scannerRef.current = html5QrCode;
 
+        // Use exact constraints to force the main (wide-angle) camera on iOS.
+        // High resolutions (1920x1080) can trigger the telephoto lens on iPhones.
+        // 1280x720 reliably uses the main wide-angle lens with proper autofocus.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (html5QrCode as any).start(
-          { facingMode: 'environment' },
+          {
+            facingMode: { exact: 'environment' },
+          },
           {
             fps: 15,
             qrbox: { width: 280, height: 160 },
             aspectRatio: 1.777,
-            // Disable the built-in UI — we render our own
             disableFlip: false,
+            videoConstraints: {
+              facingMode: { exact: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
           },
           (decodedText: string) => {
             handleScan(decodedText);
@@ -67,6 +76,29 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
             // scan errors are normal (no barcode in frame) — ignore
           }
         );
+
+        // After camera starts, reset zoom to 1x and apply continuous autofocus
+        setTimeout(async () => {
+          if (!mountedRef.current) return;
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const stream = (html5QrCode as any).getRunningTrackCameraCapabilities?.()
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              || (html5QrCode as any)._localMediaStream;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const videoTrack = stream?.getVideoTracks?.()[0] as any;
+            if (videoTrack) {
+              // Reset zoom to 1x (prevents telephoto lock)
+              try {
+                await videoTrack.applyConstraints({ advanced: [{ zoom: 1 }] });
+              } catch { /* zoom not supported */ }
+              // Apply continuous autofocus
+              try {
+                await videoTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+              } catch { /* focusMode not supported */ }
+            }
+          } catch { /* ignore */ }
+        }, 800);
 
         if (mountedRef.current) setReady(true);
       } catch (err) {

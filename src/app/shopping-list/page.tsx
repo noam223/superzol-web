@@ -81,26 +81,16 @@ function NewListSheet({ onClose, onCreate }: { onClose: () => void; onCreate: (n
 export default function ShoppingListsOverviewPage() {
   const router = useRouter();
   const [user, setUser] = useState<{ id: string } | null>(null);
-  const [mainItemCount, setMainItemCount] = useState<number | null>(null);
   const [storeLists, setStoreLists] = useState<StoreList[]>([]);
   const [namedLists, setNamedLists] = useState<ShoppingList[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewListSheet, setShowNewListSheet] = useState(false);
 
-  // Load user + main list item count + named lists from Supabase
+  // Load user + named lists from Supabase
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user);
       if (user) {
-        // Load main list count
-        supabase
-          .from('shopping_list_items')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .is('list_id', null)
-          .then(({ count }) => setMainItemCount(count ?? 0));
-
-        // Load named lists (owned + joined via shared_list_members)
         loadNamedLists(user.id);
       } else {
         setLoading(false);
@@ -130,7 +120,7 @@ export default function ShoppingListsOverviewPage() {
         .from('shopping_lists')
         .select('*')
         .in('id', joinedIds)
-        .neq('owner_id', userId) // exclude own lists (already in owned)
+        .neq('owner_id', userId)
         .order('created_at', { ascending: false });
       joined = (joinedLists as ShoppingList[]) ?? [];
     }
@@ -157,11 +147,9 @@ export default function ShoppingListsOverviewPage() {
   const deleteNamedList = useCallback(async (list: ShoppingList) => {
     if (!user) return;
     if (list.owner_id === user.id) {
-      // Owner: delete the list (cascades to items)
       const { error } = await supabase.from('shopping_lists').delete().eq('id', list.id);
       if (error) { toast.error('שגיאה במחיקה'); return; }
     } else {
-      // Member: just leave the list
       await supabase.from('shared_list_members').delete()
         .eq('list_id', list.id).eq('user_id', user.id);
     }
@@ -205,7 +193,8 @@ export default function ShoppingListsOverviewPage() {
     } catch { /* ignore */ }
   }, []);
 
-  if (!user) {
+  // Not logged in
+  if (!user && !loading) {
     return (
       <div className="min-h-screen pb-28" style={{ background: 'url(/icons/background.jpg) center/cover fixed', backgroundColor: '#DAD1CA' }}>
         <div className="max-w-2xl mx-auto px-4 py-16 text-center">
@@ -220,6 +209,8 @@ export default function ShoppingListsOverviewPage() {
     );
   }
 
+  const hasAnyList = namedLists.length > 0 || storeLists.length > 0;
+
   return (
     <div className="min-h-screen pb-28" style={{ background: 'url(/icons/background.jpg) center/cover fixed', backgroundColor: '#DAD1CA' }}>
       <div className="max-w-2xl mx-auto px-4 py-6" dir="rtl">
@@ -229,14 +220,16 @@ export default function ShoppingListsOverviewPage() {
           <h1 className="text-xl font-bold" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>
             רשימות קניות
           </h1>
-          <button
-            onClick={() => setShowNewListSheet(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-bold"
-            style={{ background: '#BF2C2C', color: 'white', fontFamily: 'Heebo, sans-serif' }}
-          >
-            <Plus size={15} />
-            רשימה חדשה
-          </button>
+          {hasAnyList && (
+            <button
+              onClick={() => setShowNewListSheet(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-bold"
+              style={{ background: '#BF2C2C', color: 'white', fontFamily: 'Heebo, sans-serif' }}
+            >
+              <Plus size={15} />
+              רשימה חדשה
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -244,42 +237,45 @@ export default function ShoppingListsOverviewPage() {
             <div className="animate-spin w-8 h-8 border-2 border-t-transparent rounded-full" style={{ borderColor: '#BF2C2C', borderTopColor: 'transparent' }} />
             <span className="text-sm">טוען...</span>
           </div>
+        ) : !hasAnyList ? (
+          /* ── Empty state: big centered CTA ── */
+          <div className="flex flex-col items-center justify-center py-20 gap-6">
+            <div className="flex items-center justify-center w-24 h-24 rounded-3xl"
+              style={{ background: 'rgba(191,44,44,0.1)' }}>
+              <ShoppingCart size={48} style={{ color: '#BF2C2C' }} />
+            </div>
+            <div className="text-center">
+              <p className="text-lg font-bold mb-1" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>אין לך רשימות עדיין</p>
+              <p className="text-sm" style={{ color: '#8a7f75' }}>צור רשימה חדשה כדי להתחיל</p>
+            </div>
+            <button
+              onClick={() => setShowNewListSheet(true)}
+              className="flex items-center gap-3 px-8 py-4 rounded-2xl font-bold text-base"
+              style={{ background: '#BF2C2C', color: 'white', fontFamily: 'Heebo, sans-serif', boxShadow: '0 4px 16px rgba(191,44,44,0.35)' }}
+            >
+              <Plus size={20} />
+              צור רשימה חדשה
+            </button>
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
-
-            {/* Main Supabase list */}
-            <Link
-              href="/shopping-list/main"
-              className="flex items-center justify-between px-4 py-4 rounded-2xl transition-opacity hover:opacity-80"
-              style={{ background: 'rgba(233,216,197,0.9)', border: '1.5px solid rgba(182,171,156,0.4)' }}
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-10 h-10 rounded-xl" style={{ background: 'rgba(191,44,44,0.12)' }}>
-                  <ShoppingCart size={20} style={{ color: '#BF2C2C' }} />
-                </div>
-                <div>
-                  <p className="text-sm font-bold" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>רשימת הקניות שלי</p>
-                  <p className="text-xs mt-0.5" style={{ color: '#8a7f75' }}>{mainItemCount === null ? '...' : `${mainItemCount} פריטים`}</p>
-                </div>
-              </div>
-              <ChevronLeft size={18} style={{ color: '#B6AB9C' }} />
-            </Link>
 
             {/* Named lists (Supabase) */}
             {namedLists.length > 0 && (
               <>
-                <p className="text-xs font-medium px-1 mt-2" style={{ color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}>רשימות שלי</p>
+                <p className="text-xs font-medium px-1 mt-1" style={{ color: '#8a7f75', fontFamily: 'Heebo, sans-serif' }}>הרשימות שלי</p>
                 {namedLists.map(list => (
                   <div key={list.id} className="flex items-center justify-between px-4 py-4 rounded-2xl"
                     style={{ background: 'rgba(233,216,197,0.9)', border: '1.5px solid rgba(182,171,156,0.4)' }}>
                     <Link href={`/shopping-list/named-${list.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="flex items-center justify-center w-10 h-10 rounded-xl shrink-0" style={{ background: list.owner_id === user.id ? 'rgba(79,72,63,0.1)' : 'rgba(45,122,45,0.12)' }}>
-                        <ShoppingCart size={20} style={{ color: list.owner_id === user.id ? '#4F483F' : '#2d7a2d' }} />
+                      <div className="flex items-center justify-center w-10 h-10 rounded-xl shrink-0"
+                        style={{ background: list.owner_id === user?.id ? 'rgba(79,72,63,0.1)' : 'rgba(45,122,45,0.12)' }}>
+                        <ShoppingCart size={20} style={{ color: list.owner_id === user?.id ? '#4F483F' : '#2d7a2d' }} />
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-bold truncate" style={{ color: '#4F483F', fontFamily: 'Heebo, sans-serif' }}>{list.name}</p>
                         <p className="text-xs mt-0.5" style={{ color: '#8a7f75' }}>
-                          {list.owner_id !== user.id ? '🔗 משותפת · ' : ''}
+                          {list.owner_id !== user?.id ? '🔗 משותפת · ' : ''}
                           {new Date(list.created_at).toLocaleDateString('he-IL')}
                         </p>
                       </div>
@@ -287,7 +283,7 @@ export default function ShoppingListsOverviewPage() {
                     <div className="flex items-center gap-1.5 shrink-0 mr-2">
                       <ChevronLeft size={18} style={{ color: '#B6AB9C' }} />
                       {/* Share button — only for owner */}
-                      {list.owner_id === user.id && (
+                      {list.owner_id === user?.id && (
                         <button
                           onClick={e => { e.preventDefault(); shareList(list); }}
                           className="flex items-center justify-center w-8 h-8 rounded-full"
@@ -301,7 +297,7 @@ export default function ShoppingListsOverviewPage() {
                         onClick={e => { e.preventDefault(); deleteNamedList(list); }}
                         className="flex items-center justify-center w-8 h-8 rounded-full"
                         style={{ background: 'rgba(191,44,44,0.1)', color: '#BF2C2C' }}
-                        title={list.owner_id === user.id ? 'מחק רשימה' : 'עזוב רשימה'}
+                        title={list.owner_id === user?.id ? 'מחק רשימה' : 'עזוב רשימה'}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -345,15 +341,6 @@ export default function ShoppingListsOverviewPage() {
                   );
                 })}
               </>
-            )}
-
-            {/* Empty state */}
-            {namedLists.length === 0 && storeLists.length === 0 && mainItemCount === 0 && (
-              <div className="text-center py-10" style={{ color: '#8a7f75' }}>
-                <ShoppingCart size={40} className="mx-auto mb-3 opacity-30" />
-                <p className="text-sm">אין פריטים ברשימה</p>
-                <p className="text-xs mt-1">לחץ על &quot;רשימה חדשה&quot; כדי להתחיל</p>
-              </div>
             )}
           </div>
         )}

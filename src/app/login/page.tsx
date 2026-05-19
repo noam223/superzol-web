@@ -11,6 +11,7 @@ import GoogleAuthButton from '@/components/GoogleAuthButton';
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const nextPath = searchParams.get('next') || '/';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -36,7 +37,7 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success('התחברת בהצלחה!');
-        router.push('/');
+        router.push(nextPath);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'שגיאה בהתחברות';
@@ -158,7 +159,7 @@ export default function LoginPage() {
           </div>
 
           {/* Google Sign-In */}
-          <GoogleAuthButton redirectTo="/" />
+          <GoogleAuthButton redirectTo={nextPath} />
 
           <div className="mt-4 text-center">
             <button

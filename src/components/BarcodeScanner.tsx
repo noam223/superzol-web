@@ -65,12 +65,11 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
         advanced.push({ focusMode: 'continuous' });
       }
 
-      // 2. Digital zoom ~2x (clamped to device max) for close-up scanning
+      // 2. Reset zoom to minimum (1x) — do NOT apply digital zoom
       if (caps?.zoom) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const zoomCap = caps.zoom as any;
-        const targetZoom = Math.max(zoomCap.min ?? 1, Math.min(zoomCap.max ?? 2, 2));
-        advanced.push({ zoom: targetZoom });
+        advanced.push({ zoom: zoomCap.min ?? 1 });
       }
 
       if (advanced.length > 0) {

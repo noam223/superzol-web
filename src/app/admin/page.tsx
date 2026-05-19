@@ -87,6 +87,28 @@ function ProductThumb({ itemCode, name, unitInfo }: { itemCode: string; name: st
   );
 }
 
+/** Fetches unit info from the products index and renders ProductThumb with a weight badge. */
+function GroupItemThumb({ itemCode, name }: { itemCode: string; name: string }) {
+  const [unitInfo, setUnitInfo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!itemCode) return;
+    const params = new URLSearchParams({
+      collection: 'products_index',
+      q: '*',
+      filter_by: `item_code:=${itemCode}`,
+      per_page: '1',
+    });
+    fetch(`/api/search?${params}`)
+      .then(r => r.json())
+      .then(data => {
+        const doc = data?.hits?.[0]?.document;
+        if (doc) setUnitInfo(formatUnitInfo(doc) || null);
+      })
+      .catch(() => {});
+  }, [itemCode]);
+  return <ProductThumb itemCode={itemCode} name={name} unitInfo={unitInfo} />;
+}
+
 async function searchProducts(q: string, excludeCodes?: Set<string>): Promise<SearchResult[]> {
   if (!q.trim()) return [];
   const params = new URLSearchParams({
@@ -641,7 +663,7 @@ function GroupsTab() {
                       return (
                         <div key={item.id} className="flex items-center gap-3 px-3 py-2.5 border-b last:border-b-0 group/item" style={{ borderColor: 'rgba(182,171,156,0.2)', background: isImage ? 'rgba(191,44,44,0.05)' : 'rgba(255,255,255,0.6)' }}>
                           <div className="relative shrink-0">
-                            <ProductThumb itemCode={item.item_code} name={item.item_name || item.item_code} />
+                            <GroupItemThumb itemCode={item.item_code} name={item.item_name || item.item_code} />
                             {isImage && (
                               <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-white" style={{ background: '#BF2C2C', fontSize: 8 }}>📷</span>
                             )}

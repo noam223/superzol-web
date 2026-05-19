@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { X, Zap, ZapOff } from 'lucide-react';
+import { X, Zap, ZapOff, Focus } from 'lucide-react';
 
 interface BarcodeScannerProps {
   onScan: (code: string) => void;
@@ -17,6 +17,7 @@ interface BarcodeScannerProps {
  * 2. @zxing/browser fallback for iOS / older browsers
  *
  * Stays open after each scan. Tap to focus.
+ * Macro toggle button for close-up scanning.
  */
 export default function BarcodeScanner({ onScan, onClose, title = 'סרוק ברקוד' }: BarcodeScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -32,6 +33,7 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
   const [lastScanned, setLastScanned] = useState<string | null>(null);
   const [scanFlash, setScanFlash] = useState(false);
   const [ready, setReady] = useState(false);
+  const [macroMode, setMacroMode] = useState(true); // default: macro/close-up mode
 
   // ── BarcodeDetector (Google ML Kit) loop ──────────────────────────────────
   const startBarcodeDetector = useCallback(async (stream: MediaStream) => {
@@ -105,12 +107,44 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
     zxingControlsRef.current = controls;
   }, [onScan]);
 
+  // ── Apply focus constraints to the active video track ────────────────────
+  const applyFocusConstraints = useCallback(async (macro: boolean) => {
+    const [vt] = streamRef.current?.getVideoTracks() ?? [];
+    if (!vt) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const caps = (vt as any).getCapabilities?.() as Record<string, unknown> | undefined;
+    const supportsFocusMode = caps && Array.isArray(caps.focusMode);
+    if (!supportsFocusMode) return;
+
+    try {
+      if (macro) {
+        // Try macro / close-up: set focusMode to manual with a short focusDistance
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (vt as any).applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: 0 } as any] });
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (vt as any).applyConstraints({ advanced: [{ focusMode: 'continuous' } as any] });
+      }
+    } catch {
+      // Some browsers don't support focusDistance — just try continuous
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (vt as any).applyConstraints({ advanced: [{ focusMode: 'continuous' } as any] });
+      } catch { /* ignore */ }
+    }
+  }, []);
+
+  // ── Toggle macro mode ─────────────────────────────────────────────────────
+  const toggleMacro = useCallback(async () => {
+    const next = !macroMode;
+    setMacroMode(next);
+    await applyFocusConstraints(next);
+  }, [macroMode, applyFocusConstraints]);
+
   // ── Main start ────────────────────────────────────────────────────────────
   const startScanner = useCallback(async () => {
     try {
-      // Request camera with continuous autofocus in the initial constraints.
-      // This works better than applyConstraints() after the fact on Android.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Request camera — try with continuous autofocus first
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -135,6 +169,21 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
       streamRef.current = stream;
 
       if (!mountedRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+
+      // After stream is ready, apply macro (close-up) focus by default
+      // (some browsers ignore constraints in getUserMedia but honour applyConstraints)
+      const [vt] = stream.getVideoTracks();
+      if (vt) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (vt as any).applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: 0 } as any] });
+        } catch {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (vt as any).applyConstraints({ advanced: [{ focusMode: 'continuous' } as any] });
+          } catch { /* ignore */ }
+        }
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const hasBD = typeof (window as any).BarcodeDetector !== 'undefined';
@@ -216,8 +265,23 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
         <p className="text-white font-bold text-base" style={{ fontFamily: 'Heebo, sans-serif', letterSpacing: 0.3 }}>
           {title}
         </p>
-        {/* Status indicator */}
-        <div className="flex items-center gap-1.5">
+        {/* Status indicator + macro toggle */}
+        <div className="flex items-center gap-2">
+          {/* Macro / close-up toggle */}
+          <button
+            onClick={e => { e.stopPropagation(); toggleMacro(); }}
+            className="flex items-center justify-center rounded-full transition-opacity hover:opacity-80 active:opacity-50"
+            style={{
+              width: 36, height: 36,
+              background: macroMode ? 'rgba(74,222,128,0.25)' : 'rgba(255,255,255,0.12)',
+              border: macroMode ? '1.5px solid rgba(74,222,128,0.6)' : '1.5px solid rgba(255,255,255,0.15)',
+              color: macroMode ? '#4ade80' : 'rgba(255,255,255,0.6)',
+              backdropFilter: 'blur(8px)',
+            }}
+            title={macroMode ? 'בטל מצב מאקרו' : 'מצב מאקרו (קרוב)'}
+          >
+            <Focus size={16} />
+          </button>
           {ready ? (
             <Zap size={16} style={{ color: '#4ade80' }} />
           ) : (
@@ -334,7 +398,7 @@ export default function BarcodeScanner({ onScan, onClose, title = 'סרוק בר
           </p>
         )}
         <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'Heebo, sans-serif' }}>
-          {usingGoogle ? 'נסרק על ידי Google · ' : ''}הקש לפוקוס
+          {usingGoogle ? 'נסרק על ידי Google · ' : ''}{macroMode ? '🔍 מצב מאקרו פעיל · ' : ''}הקש לפוקוס
         </p>
       </div>
 

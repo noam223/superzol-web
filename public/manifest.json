@@ -1,0 +1,43 @@
+{
+  "name": "סופרזול - השוואת מחירים",
+  "short_name": "סופרזול",
+  "description": "השווה מחירים בין רשתות הסופרמרקטים הגדולות בישראל",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E9D8C5",
+  "theme_color": "#E9D8C5",
+  "lang": "he",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/icons/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "השוואת מחירים",
+      "short_name": "השוואה",
+      "description": "השווה מחירים לפי רשימת קניות",
+      "url": "/shopping-list",
+      "icons": [{ "src": "/icons/cart.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "מבצעים",
+      "short_name": "מבצעים",
+      "description": "מבצעים עכשיו בסופרמרקטים",
+      "url": "/promotions",
+      "icons": [{ "src": "/icons/fire_small.png", "sizes": "96x96" }]
+    }
+  ]
+}

@@ -7,8 +7,22 @@ import LocationPrompt from '@/components/LocationPrompt'
 export const metadata: Metadata = {
   title: 'סופרזול - השוואת מחירים בסופרמרקטים',
   description: 'השווה מחירים בין רשתות הסופרמרקטים הגדולות בישראל',
+  manifest: '/manifest.json',
   icons: {
     icon: '/icons/logo.png',
+    apple: '/icons/logo.png',
+    shortcut: '/icons/logo.png',
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'סופרזול',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
   },
 }
 
